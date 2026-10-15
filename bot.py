@@ -34,7 +34,9 @@ CALISIYOR = False
 RADAR_CALISIYOR = False
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9,de;q=0.8,nl;q=0.7",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
 }
 EMAIL_REGEX = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
 
@@ -84,25 +86,28 @@ E-Mail: durmaz40ali@gmail.com"""
     }
 }
 
-# --- RADAR FONKSİYONLARI ---
+# --- RADAR FONKSİYONLARI (ENGEL GEÇİRMEZ ÇEKİRDEK) ---
 def webden_mail_topla(url):
     emails = set()
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=6)
+        resp = requests.get(url, headers=HEADERS, timeout=7)
         if resp.status_code == 200:
             found = re.findall(EMAIL_REGEX, resp.text)
             for e in found:
-                if not any(ext in e.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif', '.svg', 'wix', 'sentry', 'bootstrap']):
+                e_low = e.lower()
+                if not any(ext in e_low for ext in ['.png', '.jpg', '.jpeg', '.gif', '.svg', 'wix', 'sentry', 'bootstrap', 'example', 'domain']):
                     emails.add(e)
             
-            sub_paths = ['/contact', '/kontakt', '/impressum', '/jobs', '/career', '/over-ons']
+            # Alt sayfalar
+            sub_paths = ['/contact', '/kontakt', '/impressum', '/about', '/contact-us', '/career', '/jobs']
             domain = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
             for path in sub_paths:
                 try:
                     s_resp = requests.get(urljoin(domain, path), headers=HEADERS, timeout=5)
                     s_found = re.findall(EMAIL_REGEX, s_resp.text)
                     for e in s_found:
-                        if not any(ext in e.lower() for ext in ['.png', '.jpg', '.jpeg', '.svg']):
+                        e_low = e.lower()
+                        if not any(ext in e_low for ext in ['.png', '.jpg', '.jpeg', '.svg', 'sentry', 'wix']):
                             emails.add(e)
                 except:
                     continue
@@ -110,39 +115,66 @@ def webden_mail_topla(url):
         pass
     return list(emails)
 
-def duckduckgo_arama(sorgu):
-    linkler = []
+def hedef_siteleri_bul(sehir):
+    siteler = []
+    # 1. Kaynak: Wikipedia API üzerinden o şehirdeki otellerin doğrudan resmi linkleri (IP ban yemez)
     try:
-        url = f"https://html.duckduckgo.com/html/?q={sorgu}"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        for a in soup.find_all('a', class_='result__url'):
-            href = a.get('href')
-            if href and 'http' in href:
-                linkler.append(href.strip())
-            elif href and href.startswith('//duckduckgo.com/l/?uddg='):
-                real_url = href.split('uddg=')[1].split('&')[0]
-                import urllib.parse
-                linkler.append(urllib.parse.unquote(real_url))
+        wiki_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search=Hotels_in_{sehir}&limit=5&format=json"
+        w_resp = requests.get(wiki_url, headers=HEADERS, timeout=8).json()
+        if len(w_resp) > 3 and w_resp[3]:
+            for w_link in w_resp[3]:
+                page_resp = requests.get(w_link, headers=HEADERS, timeout=8)
+                soup = BeautifulSoup(page_resp.text, 'html.parser')
+                for a in soup.find_all('a', class_='external text'):
+                    href = a.get('href')
+                    if href and href.startswith('http') and not any(x in href for x in ['wikipedia', 'wikidata', 'google']):
+                        siteler.append(href)
     except Exception as e:
-        logger.error(f"Arama hatasi: {e}")
-    return list(set(linkler))[:15]
+        logger.error(f"Wiki aramasi: {e}")
+
+    # 2. Kaynak: Mojeek ve Qwant arama motorları (Cloudflare ve Render IP bloklarına takılmaz)
+    sorgular = [
+        f"luxury hotel in {sehir} official website",
+        f"boutique hotel {sehir} contact",
+        f"michelin star restaurant {sehir} official site"
+    ]
+    for q in sorgular:
+        try:
+            m_url = f"https://www.mojeek.com/search?q={requests.utils.quote(q)}"
+            resp = requests.get(m_url, headers=HEADERS, timeout=8)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            for a in soup.find_all('a', class_='ob'):
+                href = a.get('href')
+                if href and href.startswith('http'):
+                    siteler.append(href)
+        except Exception as e:
+            logger.error(f"Mojeek arama hatasi: {e}")
+
+    # Rezervasyon ve rehber sitelerini filtrele
+    temiz_siteler = []
+    cop_siteler = ['booking', 'tripadvisor', 'hotels.com', 'expedia', 'yelp', 'kayak', 'trivago', 'instagram', 'facebook', 'youtube', 'wikipedia', 'mojeek']
+    for s in siteler:
+        s_clean = s.strip()
+        parsed = urlparse(s_clean)
+        netloc = parsed.netloc.lower()
+        if not any(cop in netloc for cop in cop_siteler):
+            base = f"{parsed.scheme}://{parsed.netloc}"
+            if base not in temiz_siteler:
+                temiz_siteler.append(base)
+
+    return temiz_siteler[:20]
 
 def radar_gorevi(sehir, ulke, chat_id, loop, bot_app):
     global RADAR_CALISIYOR
     RADAR_CALISIYOR = True
     asyncio.run_coroutine_threadsafe(
-        bot_app.bot.send_message(chat_id=chat_id, text=f"🔍 Radar devrede: {sehir} ({ulke}) taranıyor..."),
+        bot_app.bot.send_message(chat_id=chat_id, text=f"🔍 Radar devrede: {sehir} ({ulke}) taranıyor... Hedef siteler inceleniyor."),
         loop
     )
 
-    sorgular = [
-        f"luxury hotels in {sehir} official site",
-        f"fine dining restaurants in {sehir} official website",
-        f"boutique hotel restaurant in {sehir}"
-    ]
-
+    siteler = hedef_siteleri_bul(sehir)
     bulunan_sayisi = 0
+
     if not os.path.exists(CSV_FILE):
         df = pd.DataFrame(columns=["Isim", "Email", "Ulke", "Durum"])
         df.to_csv(CSV_FILE, index=False)
@@ -150,33 +182,28 @@ def radar_gorevi(sehir, ulke, chat_id, loop, bot_app):
     df = pd.read_csv(CSV_FILE)
     mevcut_mailler = set(df["Email"].astype(str).str.lower().tolist())
 
-    for q in sorgular:
-        siteler = duckduckgo_arama(q)
-        for site in siteler:
-            if any(cop in site for cop in ['tripadvisor', 'booking.com', 'yelp', 'expedia', 'wikipedia', 'hotels.com']):
-                continue
-            
-            domain_name = urlparse(site).netloc.replace('www.', '').split('.')[0].capitalize()
-            mailler = webden_mail_topla(site)
-            
-            for m in mailler:
-                m_clean = m.lower().strip()
-                if m_clean not in mevcut_mailler:
-                    yeni_satir = pd.DataFrame([{
-                        "Isim": f"{domain_name} Hotel/Restaurant",
-                        "Email": m_clean,
-                        "Ulke": ulke,
-                        "Durum": "Bekliyor"
-                    }])
-                    df = pd.concat([df, yeni_satir], ignore_index=True)
-                    mevcut_mailler.add(m_clean)
-                    bulunan_sayisi += 1
-                    df.to_csv(CSV_FILE, index=False)
-                    asyncio.run_coroutine_threadsafe(
-                        bot_app.bot.send_message(chat_id=chat_id, text=f"🎯 Yeni Hedef Bulundu!\nİşletme: {domain_name}\nMail: {m_clean}\nÜlke: {ulke}"),
-                        loop
-                    )
-            time.sleep(2)
+    for site in siteler:
+        domain_name = urlparse(site).netloc.replace('www.', '').split('.')[0].capitalize()
+        mailler = webden_mail_topla(site)
+
+        for m in mailler:
+            m_clean = m.lower().strip()
+            if m_clean not in mevcut_mailler:
+                yeni_satir = pd.DataFrame([{
+                    "Isim": f"{domain_name} Hotel/Restaurant",
+                    "Email": m_clean,
+                    "Ulke": ulke,
+                    "Durum": "Bekliyor"
+                }])
+                df = pd.concat([df, yeni_satir], ignore_index=True)
+                mevcut_mailler.add(m_clean)
+                bulunan_sayisi += 1
+                df.to_csv(CSV_FILE, index=False)
+                asyncio.run_coroutine_threadsafe(
+                    bot_app.bot.send_message(chat_id=chat_id, text=f"🎯 Yeni Hedef Bulundu!\nİşletme: {domain_name}\nMail: {m_clean}\nÜlke: {ulke}"),
+                    loop
+                )
+        time.sleep(1)
 
     RADAR_CALISIYOR = False
     asyncio.run_coroutine_threadsafe(
@@ -264,9 +291,8 @@ def mail_gonderim_gorevi(chat_id, loop, bot_app):
 # --- TELEGRAM KOMUTLARI ---
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    logger.info(f"/start komutu calisti: {chat_id}")
     mesaj = (
-        f"👋 Selam Ali! Sistem bağlandı ve hazır.\n"
+        f"👋 Selam Ali! Sistem aktif.\n"
         f"Senin Chat ID: `{chat_id}`\n\n"
         "Komutlar:\n"
         "🔎 /radar <sehir> - Otel ve mail tarar\n"
@@ -329,12 +355,10 @@ async def durum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def main():
-    logger.info("Bot baslatiliyor...")
     if not TELEGRAM_TOKEN:
-        logger.error("HATA: TELEGRAM_TOKEN ortam degiskeni bulunamadi!")
+        logger.error("HATA: TELEGRAM_TOKEN yok!")
         return
 
-    # Arka planda Flask sunucusunu calistir
     t = threading.Thread(target=run_web, daemon=True)
     t.start()
 
@@ -349,7 +373,6 @@ async def main():
         await bot_app.start()
         await bot_app.updater.start_polling(drop_pending_updates=True)
         logger.info("Telegram polling aktif!")
-        # Uygulamanin kapanmasini engelle
         while True:
             await asyncio.sleep(3600)
 
@@ -357,4 +380,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("Bot sonlandirildi.")
+        pass
