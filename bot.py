@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 GMAIL_USER = "durmaz40ali@gmail.com"
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+SERPER_API_KEY = os.getenv("SERPER_API_KEY", "8fa5181131e715081163560a9c21923fbafb0431").strip()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
 
@@ -201,7 +202,7 @@ def extract_email_from_website(website_url: str) -> str:
         return ""
     
     try:
-        resp = requests.get(website_url, headers=USER_AGENT_HEADERS, timeout=7)
+        resp = requests.get(website_url, headers=USER_AGENT_HEADERS, timeout=6)
         if resp.status_code == 200:
             emails = set(EMAIL_REGEX.findall(resp.text))
             valid = [
@@ -230,7 +231,7 @@ def extract_email_from_website(website_url: str) -> str:
             
             for s_url in sub_links[:3]:
                 try:
-                    s_resp = requests.get(s_url, headers=USER_AGENT_HEADERS, timeout=6)
+                    s_resp = requests.get(s_url, headers=USER_AGENT_HEADERS, timeout=5)
                     if s_resp.status_code == 200:
                         s_emails = set(EMAIL_REGEX.findall(s_resp.text))
                         valid_sub = [
@@ -249,148 +250,133 @@ def extract_email_from_website(website_url: str) -> str:
         pass
     return ""
 
-def live_serp_crawler(city: str, limit: int = 15):
+def serper_google_crawler(city: str, limit: int = 20):
     """
-    Searches the live public web using targeted search queries to directly extract
-    real hotel & fine dining contact email addresses for the designated city.
+    Uses Google Search API (via Serper.dev) to bypass any Cloudflare/Datacenter IP blocks.
+    Directly searches Google for luxury hotels, fine dining restaurants, and extracts verified emails.
     """
+    if not SERPER_API_KEY:
+        logger.warning("SERPER_API_KEY tanimli degil, Google API radari atlandi.")
+        return []
+
     clean_city = city.replace("_", " ").title()
-    search_queries = [
-        f'"{clean_city}" luxury hotel email contact OR karriere OR jobs',
-        f'"{clean_city}" fine dining restaurant email OR kontakt OR career',
-        f'"{clean_city}" boutique hotel email info OR reservations'
+    queries = [
+        f'"{clean_city}" luxury hotel contact email OR career',
+        f'"{clean_city}" fine dining restaurant email OR kontakt',
+        f'"{clean_city}" 5 star hotel email OR karriere'
     ]
-    
+
     found = []
     seen_emails = set()
+    url = "https://google.serper.dev/search"
+    headers = {
+        "X-API-KEY": SERPER_API_KEY,
+        "Content-Type": "application/json"
+    }
 
-    for q in search_queries:
+    for q in queries:
         if len(found) >= limit:
             break
         try:
-            url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(q)}"
-            resp = requests.post(
-                "https://html.duckduckgo.com/html/",
-                data={"q": q},
-                headers=USER_AGENT_HEADERS,
-                timeout=10
-            )
+            payload = {"q": q, "num": 10}
+            resp = requests.post(url, json=payload, headers=headers, timeout=10)
             if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                results = soup.select(".result")
-                for r in results:
-                    title_elem = r.select_one(".result__title")
-                    snip_elem = r.select_one(".result__snippet")
-                    url_elem = r.select_one(".result__url")
-                    
-                    raw_text = (snip_elem.get_text() if snip_elem else "") + " " + (title_elem.get_text() if title_elem else "")
-                    emails = set(EMAIL_REGEX.findall(raw_text))
-                    
-                    venue_title = title_elem.get_text(strip=True) if title_elem else f"Hospitality {clean_city}"
-                    venue_title = re.sub(r"(\.\.\.| - .*| \| .*)", "", venue_title).strip()
-                    if not venue_title:
-                        venue_title = f"Luxury Venue {clean_city}"
+                data = resp.json()
+                organic = data.get("organic", [])
+                for item in organic:
+                    title = item.get("title", f"Hospitality {clean_city}")
+                    title = re.sub(r"(\.\.\.| - .*| \| .*)", "", title).strip()
+                    snippet = item.get("snippet", "")
+                    link = item.get("link", "")
 
-                    for email in emails:
-                        e_clean = email.lower().strip()
-                        if not e_clean.endswith(IGNORE_EXTENSIONS) and e_clean not in seen_emails and "duckduckgo" not in e_clean:
-                            seen_emails.add(e_clean)
-                            found.append({"isim": venue_title, "email": e_clean})
+                    # 1. Search email directly in Google snippet
+                    snippet_emails = set(EMAIL_REGEX.findall(snippet + " " + title))
+                    added = False
+                    for em in snippet_emails:
+                        em_clean = em.lower().strip()
+                        if not em_clean.endswith(IGNORE_EXTENSIONS) and em_clean not in seen_emails:
+                            seen_emails.add(em_clean)
+                            found.append({"isim": title, "email": em_clean})
+                            added = True
                             break
-                    
-                    # If snippet didn't have email directly, crawl destination domain
-                    if url_elem and len(found) < limit:
-                        link_href = url_elem.get_text(strip=True)
-                        if link_href and not link_href.startswith("http"):
-                            link_href = "https://" + link_href
-                        extracted = extract_email_from_website(link_href)
+
+                    # 2. If not found in snippet, crawl official destination site
+                    if not added and link and len(found) < limit:
+                        extracted = extract_email_from_website(link)
                         if extracted and extracted.lower() not in seen_emails:
                             seen_emails.add(extracted.lower())
-                            found.append({"isim": venue_title, "email": extracted.strip()})
+                            found.append({"isim": title, "email": extracted.strip()})
+
+                    if len(found) >= limit:
+                        break
         except Exception as e:
-            logger.warning(f"SERP arama uyarisi ({q}): {e}")
+            logger.error(f"Serper API tarama hatasi ({q}): {e}")
             continue
 
     return found
 
-def live_search_venues(city: str, limit: int = 30):
+def live_search_venues(city: str, limit: int = 25):
     """
-    Harvests luxury venues using a robust 2-stage pipeline:
-    1. OpenStreetMap Overpass bounding box query with direct contact extraction.
-    2. Deep SERP search engine fallback crawler ensuring endless real-time discoverability.
+    Robust 2-Tier Architecture:
+    1. Primary: Google Serper API (Guaranteed bypass of datacenter IP bans).
+    2. Fallback: OpenStreetMap Overpass with site email crawling.
     """
     clean_city = city.strip().replace("_", " ").title()
     logger.info(f"Otonom radar sahada: {clean_city}")
     results = []
     seen_emails = set()
 
-    # Stage 1: Geocoded Bounding Box via Nominatim + Overpass
-    try:
-        nom_url = f"https://nominatim.openstreetmap.org/search?city={clean_city}&format=json&limit=1"
-        nom_resp = requests.get(nom_url, headers=USER_AGENT_HEADERS, timeout=8)
-        bbox = None
-        if nom_resp.status_code == 200 and nom_resp.json():
-            bb = nom_resp.json()[0].get("boundingbox", [])
-            if len(bb) == 4:
-                # south, north, west, east -> south, west, north, east
-                bbox = f"{bb[0]},{bb[2]},{bb[1]},{bb[3]}"
+    # Tier 1: Serper Google API
+    if SERPER_API_KEY:
+        google_results = serper_google_crawler(clean_city, limit=limit)
+        for gr in google_results:
+            e_clean = gr["email"].lower().strip()
+            if e_clean not in seen_emails:
+                seen_emails.add(e_clean)
+                results.append(gr)
 
-        overpass_url = "https://overpass-api.de/api/interpreter"
-        if bbox:
-            query = f"""
-            [out:json][timeout:20];
-            (
-              nwr["tourism"="hotel"]({bbox});
-              nwr["amenity"="restaurant"]["cuisine"~"fine_dining|french|italian|gourmet|steak_house"]({bbox});
-            );
-            out tags 100;
-            """
-        else:
-            query = f"""
-            [out:json][timeout:20];
-            area["name"="{clean_city}"]->.a;
-            (
-              nwr["tourism"="hotel"](area.a);
-              nwr["amenity"="restaurant"](area.a);
-            );
-            out tags 100;
-            """
-
-        op_resp = requests.post(overpass_url, data={'data': query}, timeout=22)
-        if op_resp.status_code == 200:
-            elements = op_resp.json().get("elements", [])
-            for elem in elements:
-                tags = elem.get("tags", {})
-                name = tags.get("name")
-                if not name:
-                    continue
-                email = tags.get("email") or tags.get("contact:email")
-                website = tags.get("website") or tags.get("contact:website")
-                
-                if email and "@" in email:
-                    e_clean = email.strip().lower()
-                    if e_clean not in seen_emails:
-                        seen_emails.add(e_clean)
-                        results.append({"isim": name, "email": e_clean})
-                elif website and len(results) < limit:
-                    extracted = extract_email_from_website(website)
-                    if extracted and extracted.lower() not in seen_emails:
-                        seen_emails.add(extracted.lower())
-                        results.append({"isim": name, "email": extracted.strip()})
-                
-                if len(results) >= limit:
-                    break
-    except Exception as e:
-        logger.warning(f"Overpass harita tarama atlandi: {e}")
-
-    # Stage 2: SERP Crawler to continuously expand pool beyond static boundaries
+    # Tier 2: OpenStreetMap Overpass (if needed or as supplementary)
     if len(results) < limit:
-        logger.info(f"Canlı SERP radarı devreye giriyor: {clean_city}")
-        serp_results = live_serp_crawler(clean_city, limit=(limit - len(results)))
-        for sr in serp_results:
-            if sr["email"].lower() not in seen_emails:
-                seen_emails.add(sr["email"].lower())
-                results.append(sr)
+        try:
+            nom_url = f"https://nominatim.openstreetmap.org/search?city={clean_city}&format=json&limit=1"
+            nom_resp = requests.get(nom_url, headers=USER_AGENT_HEADERS, timeout=8)
+            bbox = None
+            if nom_resp.status_code == 200 and nom_resp.json():
+                bb = nom_resp.json()[0].get("boundingbox", [])
+                if len(bb) == 4:
+                    bbox = f"{bb[0]},{bb[2]},{bb[1]},{bb[3]}"
+
+            overpass_url = "https://overpass-api.de/api/interpreter"
+            query = f"""
+            [out:json][timeout:20];
+            {"(nwr['tourism'='hotel'](" + bbox + ");nwr['amenity'='restaurant']['cuisine'~'fine_dining|french|italian|gourmet|steak_house'](" + bbox + "););" if bbox else "area['name'='" + clean_city + "']->.a;(nwr['tourism'='hotel'](area.a);nwr['amenity'='restaurant'](area.a););"}
+            out tags 80;
+            """
+            op_resp = requests.post(overpass_url, data={'data': query}, timeout=20)
+            if op_resp.status_code == 200:
+                for elem in op_resp.json().get("elements", []):
+                    tags = elem.get("tags", {})
+                    name = tags.get("name")
+                    if not name:
+                        continue
+                    email = tags.get("email") or tags.get("contact:email")
+                    website = tags.get("website") or tags.get("contact:website")
+                    
+                    if email and "@" in email:
+                        e_clean = email.strip().lower()
+                        if e_clean not in seen_emails:
+                            seen_emails.add(e_clean)
+                            results.append({"isim": name, "email": e_clean})
+                    elif website and len(results) < limit:
+                        extracted = extract_email_from_website(website)
+                        if extracted and extracted.lower() not in seen_emails:
+                            seen_emails.add(extracted.lower())
+                            results.append({"isim": name, "email": extracted.strip()})
+                    
+                    if len(results) >= limit:
+                        break
+        except Exception as e:
+            logger.warning(f"Overpass tarama pas gecildi: {e}")
 
     return results
 
@@ -504,12 +490,14 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
     sehir_slug = slugify(sehir_sorgu)
     ulke_kodu = get_country_code(sehir_slug)
 
+    engine_info = "Google API & Harita Ağları" if SERPER_API_KEY else "Harita Ağları (API Key Bekleniyor)"
     asyncio.run_coroutine_threadsafe(
         bot_app.bot.send_message(
             chat_id=chat_id, 
             text=f"🛰️ *Otonom Canlı Radar Başlatıldı!*\n"
                  f"📍 Hedef Bölge: `{sehir_temiz}` ({ulke_kodu})\n"
-                 f"İnternet arama motorları ve harita sistemleri taranıyor, yeni işletmeler çekiliyor..."
+                 f"🔍 Motor: {engine_info}\n"
+                 f"İşletmeler taranıyor, yeni e-postalar çekiliyor..."
         ),
         loop
     )
@@ -525,7 +513,7 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
     sent_history = get_sent_history()
     mevcut_mailler = set(df["Email"].astype(str).str.lower().tolist())
 
-    canli_bulunanlar = live_search_venues(sehir_sorgu, limit=25)
+    canli_bulunanlar = live_search_venues(sehir_sorgu, limit=20)
     bulunan_sayisi = 0
 
     for item in canli_bulunanlar:
@@ -564,7 +552,7 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
         f"📍 `{sehir_temiz}` için **{bulunan_sayisi}** yeni işletme listeye eklendi.\n\n"
         f"Gönderimi başlatmak için: /baslat"
     ) if bulunan_sayisi > 0 else (
-        f"ℹ️ `{sehir_temiz}` için tespit edilen işletmeler zaten hafızada kayıtlı veya daha önce mail iletilmiş. "
+        f"ℹ️ `{sehir_temiz}` için tespit edilen işletmeler zaten hafızada kayıtlı veya daha önce mail iletilmiş.\n"
         f"Dilerseniz gönderimi başlatabilir (/baslat) veya farklı bir şehir taratabilirsiniz."
     )
 
@@ -669,9 +657,9 @@ def build_country_message(country_name: str, cities: list) -> str:
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mesaj = (
         f"👋 Selam Ali! Küresel Otonom Staj Radarı 7/24 Devrede.\n\n"
-        "🛰️ *Tam Otonom Canlı Radar:*\n"
-        "Artık hiçbir manuel sınır yok! İstediğin şehir veya ülkeyi seç, bot internetten "
-        "en lüks otelleri ve restoranları canlı olarak bulup listeye ekler.\n\n"
+        "🛰️ *Tam Otonom Canlı Radar (Google Destekli):*\n"
+        "İstediğin şehir veya ülkeyi seç, bot Google üzerinden en lüks otelleri "
+        "ve restoranları canlı tarayarak listeye ekler.\n\n"
         "🌐 *Ülke Menüleri:*\n"
         "👉 /amerika - ABD şehirleri (New York, Miami, LA...)\n"
         "👉 /almanya - Almanya şehirleri (Berlin, Münih, Köln...)\n"
