@@ -6,7 +6,7 @@ import random
 import threading
 import logging
 import asyncio
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -39,7 +39,7 @@ CV_FILE = "Ali_Gorkem_Durmaz_CV.pdf"
 CALISIYOR = False
 RADAR_CALISIYOR = False
 
-# Permanent hardcoded sent history preventing duplicate dispatches
+# Kalıcı hafıza: Daha önce mail atılmış adresler
 PERMANENT_SENT_EMAILS = {
     # Amsterdam
     "amsterdam.info@waldorfastoria.com",
@@ -81,7 +81,6 @@ PERMANENT_SENT_EMAILS = {
     "contact@lemoissonnier.de",
 }
 
-# Comprehensive City and Country Directory for instant UI commands
 CITY_DIRECTORY = {
     "Almanya": [
         "Berlin", "Munich", "Frankfurt", "Hamburg", "Koln", "Dusseldorf",
@@ -151,7 +150,6 @@ CITY_DIRECTORY = {
 }
 
 def slugify(text: str) -> str:
-    """Sanitizes any string into ASCII a-z0-9_ for Telegram command compatibility."""
     text = text.lower().strip()
     replacements = {
         "ü": "u", "ö": "o", "ş": "s", "ı": "i", "ğ": "g", "ç": "c",
@@ -160,11 +158,9 @@ def slugify(text: str) -> str:
     }
     for char, rep in replacements.items():
         text = text.replace(char, rep)
-    text = re.sub(r"[^a-z0-9_]", "", text)
-    return text
+    return re.sub(r"[^a-z0-9_]", "", text)
 
 def get_country_code(city_slug: str) -> str:
-    """Maps cities to national codes (DE/AT vs EN international template)."""
     clean = city_slug.lower().replace("_", "")
     de_cities = [
         "berlin", "munich", "munchen", "frankfurt", "hamburg", "koln",
@@ -183,11 +179,16 @@ def get_country_code(city_slug: str) -> str:
         return "AT"
     return "EN"
 
-EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+EMAIL_REGEX = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 IGNORE_EXTENSIONS = (
     '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css',
     '.js', '.woff', '.woff2', '.ttf'
 )
+JUNK_DOMAINS = [
+    "example.com", "domain.com", "sentry.io", "wix.com", "wordpress.org",
+    "schema.org", "cloudflare.com", "ymail.com", ".gov", "alexandertheguest.com"
+]
+
 USER_AGENT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -196,33 +197,41 @@ USER_AGENT_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9,de;q=0.8"
 }
 
+def clean_email(raw_email: str) -> str:
+    """Temizler, sondaki noktalari ve gecersiz karakterleri atar."""
+    if not raw_email:
+        return ""
+    mail = raw_email.strip().strip(".,;:!'\"<>[]{}()").lower()
+    if any(junk in mail for junk in JUNK_DOMAINS):
+        return ""
+    if mail.endswith(IGNORE_EXTENSIONS):
+        return ""
+    if "@" not in mail or "." not in mail.split("@")[-1]:
+        return ""
+    return mail
+
 def extract_email_from_website(website_url: str) -> str:
-    """Crawls official venue homepages and contact/career subpages to discover emails."""
     if not website_url or not website_url.startswith("http"):
         return ""
     
     try:
         resp = requests.get(website_url, headers=USER_AGENT_HEADERS, timeout=6)
         if resp.status_code == 200:
-            emails = set(EMAIL_REGEX.findall(resp.text))
-            valid = [
-                e for e in emails 
-                if not e.lower().endswith(IGNORE_EXTENSIONS) 
-                and not any(x in e.lower() for x in ["wix", "sentry", "example", "schema", "bootstrap", "wordpress"])
-            ]
-            if valid:
-                for mail in valid:
-                    m = mail.lower()
-                    if any(k in m for k in ["karriere", "career", "hr", "jobs", "recruitment", "info", "kontakt", "contact"]):
+            found = EMAIL_REGEX.findall(resp.text)
+            cleaned = [clean_email(e) for e in found if clean_email(e)]
+            
+            if cleaned:
+                for mail in cleaned:
+                    if any(k in mail for k in ["karriere", "career", "hr", "jobs", "recruitment", "info", "kontakt", "contact"]):
                         return mail
-                return valid[0]
+                return cleaned[0]
             
             # Sub-crawl for Contact / Jobs links
             soup = BeautifulSoup(resp.text, "html.parser")
             sub_links = []
             for a in soup.find_all("a", href=True):
                 href = a['href'].lower()
-                if any(x in href for x in ["contact", "kontakt", "impressum", "career", "jobs", "about"]):
+                if any(x in href for x in ["contact", "kontakt", "impressum", "career", "jobs"]):
                     if a['href'].startswith("http"):
                         sub_links.append(a['href'])
                     else:
@@ -233,17 +242,13 @@ def extract_email_from_website(website_url: str) -> str:
                 try:
                     s_resp = requests.get(s_url, headers=USER_AGENT_HEADERS, timeout=5)
                     if s_resp.status_code == 200:
-                        s_emails = set(EMAIL_REGEX.findall(s_resp.text))
-                        valid_sub = [
-                            e for e in s_emails 
-                            if not e.lower().endswith(IGNORE_EXTENSIONS) 
-                            and not any(x in e.lower() for x in ["wix", "sentry", "example", "schema"])
-                        ]
-                        if valid_sub:
-                            for c_mail in valid_sub:
-                                if any(k in c_mail.lower() for k in ["career", "jobs", "hr", "karriere", "kontakt", "info"]):
+                        s_found = EMAIL_REGEX.findall(s_resp.text)
+                        s_cleaned = [clean_email(e) for e in s_found if clean_email(e)]
+                        if s_cleaned:
+                            for c_mail in s_cleaned:
+                                if any(k in c_mail for k in ["career", "jobs", "hr", "karriere", "kontakt", "info"]):
                                     return c_mail
-                            return valid_sub[0]
+                            return s_cleaned[0]
                 except Exception:
                     continue
     except Exception:
@@ -251,19 +256,14 @@ def extract_email_from_website(website_url: str) -> str:
     return ""
 
 def serper_google_crawler(city: str, limit: int = 20):
-    """
-    Uses Google Search API (via Serper.dev) to bypass any Cloudflare/Datacenter IP blocks.
-    Directly searches Google for luxury hotels, fine dining restaurants, and extracts verified emails.
-    """
     if not SERPER_API_KEY:
-        logger.warning("SERPER_API_KEY tanimli degil, Google API radari atlandi.")
         return []
 
     clean_city = city.replace("_", " ").title()
     queries = [
-        f'"{clean_city}" luxury hotel contact email OR career',
-        f'"{clean_city}" fine dining restaurant email OR kontakt',
-        f'"{clean_city}" 5 star hotel email OR karriere'
+        f'"{clean_city}" "hotel" (email OR contact OR karriere) -youtube -merch -gov',
+        f'"{clean_city}" "fine dining restaurant" (email OR kontakt OR career) -youtube',
+        f'"{clean_city}" "michelin" restaurant email contact'
     ]
 
     found = []
@@ -289,94 +289,47 @@ def serper_google_crawler(city: str, limit: int = 20):
                     snippet = item.get("snippet", "")
                     link = item.get("link", "")
 
-                    # 1. Search email directly in Google snippet
-                    snippet_emails = set(EMAIL_REGEX.findall(snippet + " " + title))
+                    # 1. Snippet icinden email ara
+                    snippet_emails = EMAIL_REGEX.findall(snippet + " " + title)
                     added = False
                     for em in snippet_emails:
-                        em_clean = em.lower().strip()
-                        if not em_clean.endswith(IGNORE_EXTENSIONS) and em_clean not in seen_emails:
+                        em_clean = clean_email(em)
+                        if em_clean and em_clean not in seen_emails:
                             seen_emails.add(em_clean)
                             found.append({"isim": title, "email": em_clean})
                             added = True
                             break
 
-                    # 2. If not found in snippet, crawl official destination site
+                    # 2. Resmi isletme sitesine girip tara
                     if not added and link and len(found) < limit:
                         extracted = extract_email_from_website(link)
-                        if extracted and extracted.lower() not in seen_emails:
-                            seen_emails.add(extracted.lower())
-                            found.append({"isim": title, "email": extracted.strip()})
+                        em_clean = clean_email(extracted)
+                        if em_clean and em_clean not in seen_emails:
+                            seen_emails.add(em_clean)
+                            found.append({"isim": title, "email": em_clean})
 
                     if len(found) >= limit:
                         break
         except Exception as e:
-            logger.error(f"Serper API tarama hatasi ({q}): {e}")
+            logger.error(f"Serper API tarama hatasi: {e}")
             continue
 
     return found
 
-def live_search_venues(city: str, limit: int = 25):
-    """
-    Robust 2-Tier Architecture:
-    1. Primary: Google Serper API (Guaranteed bypass of datacenter IP bans).
-    2. Fallback: OpenStreetMap Overpass with site email crawling.
-    """
+def live_search_venues(city: str, limit: int = 20):
     clean_city = city.strip().replace("_", " ").title()
     logger.info(f"Otonom radar sahada: {clean_city}")
     results = []
     seen_emails = set()
 
-    # Tier 1: Serper Google API
     if SERPER_API_KEY:
         google_results = serper_google_crawler(clean_city, limit=limit)
         for gr in google_results:
-            e_clean = gr["email"].lower().strip()
-            if e_clean not in seen_emails:
+            e_clean = clean_email(gr["email"])
+            if e_clean and e_clean not in seen_emails:
                 seen_emails.add(e_clean)
+                gr["email"] = e_clean
                 results.append(gr)
-
-    # Tier 2: OpenStreetMap Overpass (if needed or as supplementary)
-    if len(results) < limit:
-        try:
-            nom_url = f"https://nominatim.openstreetmap.org/search?city={clean_city}&format=json&limit=1"
-            nom_resp = requests.get(nom_url, headers=USER_AGENT_HEADERS, timeout=8)
-            bbox = None
-            if nom_resp.status_code == 200 and nom_resp.json():
-                bb = nom_resp.json()[0].get("boundingbox", [])
-                if len(bb) == 4:
-                    bbox = f"{bb[0]},{bb[2]},{bb[1]},{bb[3]}"
-
-            overpass_url = "https://overpass-api.de/api/interpreter"
-            query = f"""
-            [out:json][timeout:20];
-            {"(nwr['tourism'='hotel'](" + bbox + ");nwr['amenity'='restaurant']['cuisine'~'fine_dining|french|italian|gourmet|steak_house'](" + bbox + "););" if bbox else "area['name'='" + clean_city + "']->.a;(nwr['tourism'='hotel'](area.a);nwr['amenity'='restaurant'](area.a););"}
-            out tags 80;
-            """
-            op_resp = requests.post(overpass_url, data={'data': query}, timeout=20)
-            if op_resp.status_code == 200:
-                for elem in op_resp.json().get("elements", []):
-                    tags = elem.get("tags", {})
-                    name = tags.get("name")
-                    if not name:
-                        continue
-                    email = tags.get("email") or tags.get("contact:email")
-                    website = tags.get("website") or tags.get("contact:website")
-                    
-                    if email and "@" in email:
-                        e_clean = email.strip().lower()
-                        if e_clean not in seen_emails:
-                            seen_emails.add(e_clean)
-                            results.append({"isim": name, "email": e_clean})
-                    elif website and len(results) < limit:
-                        extracted = extract_email_from_website(website)
-                        if extracted and extracted.lower() not in seen_emails:
-                            seen_emails.add(extracted.lower())
-                            results.append({"isim": name, "email": extracted.strip()})
-                    
-                    if len(results) >= limit:
-                        break
-        except Exception as e:
-            logger.warning(f"Overpass tarama pas gecildi: {e}")
 
     return results
 
@@ -391,7 +344,6 @@ def run_web():
     server.run(host="0.0.0.0", port=port, use_reloader=False)
 
 def get_sent_history():
-    """Returns all historically contacted emails across memory and storage."""
     sent = set(PERMANENT_SENT_EMAILS)
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -402,14 +354,14 @@ def get_sent_history():
     return sent
 
 def add_to_sent_history(email: str):
-    """Permanently commits an email to file and memory cache."""
     try:
-        clean = email.lower().strip()
-        PERMANENT_SENT_EMAILS.add(clean)
-        with open(HISTORY_FILE, "a", encoding="utf-8") as f:
-            f.write(clean + "\n")
+        clean = clean_email(email)
+        if clean:
+            PERMANENT_SENT_EMAILS.add(clean)
+            with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+                f.write(clean + "\n")
     except Exception as e:
-        logger.error(f"Hafıza dosyası yazma hatası: {e}")
+        logger.error(f"Hafiza yazma hatasi: {e}")
 
 TEMPLATES = {
     "DE": {
@@ -445,6 +397,10 @@ E-Mail: durmaz40ali@gmail.com"""
 }
 
 def mail_at_brevo(alici_mail: str, sirket: str, ulke: str):
+    clean_alici = clean_email(alici_mail)
+    if not clean_alici:
+        raise ValueError(f"Gecersiz email adresi: {alici_mail}")
+
     dil = "DE" if str(ulke).upper() in ["DE", "AT"] else "EN"
     ayar = TEMPLATES[dil]
     konu = ayar["konu"].format(sirket=sirket)
@@ -464,7 +420,7 @@ def mail_at_brevo(alici_mail: str, sirket: str, ulke: str):
     }
     payload = {
         "sender": {"name": "Ali Görkem Durmaz", "email": GMAIL_USER},
-        "to": [{"email": alici_mail, "name": sirket}],
+        "to": [{"email": clean_alici, "name": sirket}],
         "bcc": [{"email": GMAIL_USER, "name": "Kopya - Ali Görkem Durmaz"}],
         "replyTo": {"email": GMAIL_USER, "name": "Ali Görkem Durmaz"},
         "subject": konu,
@@ -490,14 +446,12 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
     sehir_slug = slugify(sehir_sorgu)
     ulke_kodu = get_country_code(sehir_slug)
 
-    engine_info = "Google API & Harita Ağları" if SERPER_API_KEY else "Harita Ağları (API Key Bekleniyor)"
     asyncio.run_coroutine_threadsafe(
         bot_app.bot.send_message(
             chat_id=chat_id, 
-            text=f"🛰️ *Otonom Canlı Radar Başlatıldı!*\n"
-                 f"📍 Hedef Bölge: `{sehir_temiz}` ({ulke_kodu})\n"
-                 f"🔍 Motor: {engine_info}\n"
-                 f"İşletmeler taranıyor, yeni e-postalar çekiliyor..."
+            text=f"🛰️ *Otonom Filtreli Canlı Radar Başlatıldı!*\n"
+                 f"📍 Hedef: `{sehir_temiz}` ({ulke_kodu})\n"
+                 f"Otel ve Michelin restoranları taranıp doğrulanıyor..."
         ),
         loop
     )
@@ -517,10 +471,10 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
     bulunan_sayisi = 0
 
     for item in canli_bulunanlar:
-        m_clean = item["email"].lower().strip()
+        m_clean = clean_email(item["email"])
         sirket = item["isim"]
 
-        if m_clean in sent_history or m_clean in mevcut_mailler:
+        if not m_clean or m_clean in sent_history or m_clean in mevcut_mailler:
             continue
 
         yeni_satir = pd.DataFrame([{
@@ -537,7 +491,7 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
         asyncio.run_coroutine_threadsafe(
             bot_app.bot.send_message(
                 chat_id=chat_id,
-                text=f"🎯 *Yeni Hedef Bulundu!*\n"
+                text=f"🎯 *Doğrulanmış Hedef Eklendi!*\n"
                      f"İşletme: {sirket}\n"
                      f"Mail: `{m_clean}`\n"
                      f"Bölge: {sehir_temiz} ({ulke_kodu})"
@@ -552,8 +506,7 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
         f"📍 `{sehir_temiz}` için **{bulunan_sayisi}** yeni işletme listeye eklendi.\n\n"
         f"Gönderimi başlatmak için: /baslat"
     ) if bulunan_sayisi > 0 else (
-        f"ℹ️ `{sehir_temiz}` için tespit edilen işletmeler zaten hafızada kayıtlı veya daha önce mail iletilmiş.\n"
-        f"Dilerseniz gönderimi başlatabilir (/baslat) veya farklı bir şehir taratabilirsiniz."
+        f"ℹ️ `{sehir_temiz}` için yeni adres bulunamadı veya hepsi hafızada kayıtlı."
     )
 
     asyncio.run_coroutine_threadsafe(
@@ -577,7 +530,7 @@ def mail_gonderim_gorevi(chat_id: int, loop, bot_app):
 
     sent_history = get_sent_history()
     for idx, row in df.iterrows():
-        m = str(row["Email"]).lower().strip()
+        m = clean_email(str(row["Email"]))
         if m in sent_history and str(row["Durum"]).strip() != "Gonderildi":
             df.at[idx, "Durum"] = "Gonderildi"
     df.to_csv(CSV_FILE, index=False)
@@ -600,11 +553,17 @@ def mail_gonderim_gorevi(chat_id: int, loop, bot_app):
         if str(row["Durum"]).strip() == "Gonderildi":
             continue
 
-        email = str(row["Email"]).strip()
+        raw_email = str(row["Email"]).strip()
+        email = clean_email(raw_email)
         sirket = str(row["Isim"]).strip()
         ulke = str(row.get("Ulke", "US")).strip()
 
-        if email.lower() in sent_history:
+        if not email:
+            df.at[idx, "Durum"] = "Gecersiz"
+            df.to_csv(CSV_FILE, index=False)
+            continue
+
+        if email in sent_history:
             df.at[idx, "Durum"] = "Gonderildi"
             df.to_csv(CSV_FILE, index=False)
             continue
@@ -616,7 +575,7 @@ def mail_gonderim_gorevi(chat_id: int, loop, bot_app):
             df.at[idx, "Durum"] = "Gonderildi"
             df.to_csv(CSV_FILE, index=False)
             add_to_sent_history(email)
-            sent_history.add(email.lower())
+            sent_history.add(email)
             
             asyncio.run_coroutine_threadsafe(
                 bot_app.bot.send_message(
@@ -647,7 +606,7 @@ def mail_gonderim_gorevi(chat_id: int, loop, bot_app):
     )
 
 def build_country_message(country_name: str, cities: list) -> str:
-    lines = [f"🌍 *{country_name.upper()} ŞEHİR RADARLARI* 🛰️", "Aşağıdaki şehirlere tıklayarak canlı taramayı hemen başlatabilirsin:\n"]
+    lines = [f"🌍 *{country_name.upper()} ŞEHİR RADARLARI* 🛰️", "Aşağıdaki şehirlere tıklayarak canlı taramayı başlatabilirsin:\n"]
     for c in cities:
         c_slug = slugify(c)
         lines.append(f"👉 /radar_{c_slug}  _({c})_")
@@ -657,33 +616,28 @@ def build_country_message(country_name: str, cities: list) -> str:
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mesaj = (
         f"👋 Selam Ali! Küresel Otonom Staj Radarı 7/24 Devrede.\n\n"
-        "🛰️ *Tam Otonom Canlı Radar (Google Destekli):*\n"
-        "İstediğin şehir veya ülkeyi seç, bot Google üzerinden en lüks otelleri "
-        "ve restoranları canlı tarayarak listeye ekler.\n\n"
         "🌐 *Ülke Menüleri:*\n"
-        "👉 /amerika - ABD şehirleri (New York, Miami, LA...)\n"
-        "👉 /almanya - Almanya şehirleri (Berlin, Münih, Köln...)\n"
-        "👉 /italya - İtalya şehirleri (Roma, Milano, Floransa...)\n"
-        "👉 /fransa - Fransa şehirleri (Paris, Lyon, Nice...)\n"
-        "👉 /ispanya - İspanya şehirleri (Madrid, Barselona...)\n"
-        "👉 /hollanda - Hollanda şehirleri (Amsterdam, Rotterdam...)\n"
-        "👉 /ingiltere - İngiltere şehirleri (Londra, Edinburgh...)\n"
-        "👉 /iskandinavya - Danimarka, İsveç, Norveç, Finlandiya\n"
-        "👉 /isvicre & /avusturya - Alpler ve Merkez Avrupa\n"
-        "👉 /portekiz & /belcika\n"
-        "👉 /ulkeler - Tüm ülkelerin tam listesi\n\n"
+        "👉 /amerika - ABD\n"
+        "👉 /almanya - Almanya\n"
+        "👉 /italya - İtalya\n"
+        "👉 /fransa - Fransa\n"
+        "👉 /ispanya - İspanya\n"
+        "👉 /hollanda - Hollanda\n"
+        "👉 /ingiltere - İngiltere\n"
+        "👉 /iskandinavya - İskandinav Ülkeleri\n"
+        "👉 /isvicre & /avusturya\n"
+        "👉 /ulkeler - Tüm ülkeler\n\n"
         "⚙️ *Operasyon Komutları:*\n"
-        "🚀 /baslat - Gönderimi başlatır (60-75 sn aralıkla)\n"
+        "🚀 /baslat - Gönderimi başlatır\n"
         "🛑 /durdur - Gönderimi durdurur\n"
-        "📊 /durum - Anlık durumu gösterir\n"
-        "💾 /csv_indir - Güncel CSV yedeğini indirir"
+        "📊 /durum - Durum özeti\n"
+        "💾 /csv_indir - Güncel CSV indir"
     )
     await update.message.reply_text(mesaj, parse_mode="Markdown")
 
 async def ulkeler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mesaj = (
-        "🌍 *DESTEKLENEN TÜM ÜLKE MENÜLERİ*\n"
-        "Tıklayarak o ülkedeki tüm şehir listesini görebilirsin:\n\n"
+        "🌍 *DESTEKLENEN TÜM ÜLKELER*\n\n"
         "🇺🇸 /amerika\n"
         "🇩🇪 /almanya\n"
         "🇮🇹 /italya\n"
@@ -700,30 +654,19 @@ async def ulkeler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🇨🇿 /cekyo\n"
         "🇬🇷 /yunanistan\n"
         "🇭🇺 /macaristan\n"
-        "🌐 /diger (İrlanda, Hırvatistan, Slovenya...)"
+        "🌐 /diger"
     )
     await update.message.reply_text(mesaj, parse_mode="Markdown")
 
 async def country_shortcut_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cmd = update.message.text.strip().replace("/", "").lower()
     mapping = {
-        "almanya": "Almanya",
-        "amerika": "Amerika",
-        "italya": "Italya",
-        "fransa": "Fransa",
-        "ispanya": "Ispanya",
-        "hollanda": "Hollanda",
-        "ingiltere": "Ingiltere",
-        "isvicre": "Isvicre",
-        "avusturya": "Avusturya",
-        "portekiz": "Portekiz",
-        "belcika": "Belcika",
-        "iskandinavya": "Iskandinavya",
-        "polonya": "Polonya",
-        "cekyo": "Cekya",
-        "yunanistan": "Yunanistan",
-        "macaristan": "Macaristan",
-        "diger": "Diger"
+        "almanya": "Almanya", "amerika": "Amerika", "italya": "Italya",
+        "fransa": "Fransa", "ispanya": "Ispanya", "hollanda": "Hollanda",
+        "ingiltere": "Ingiltere", "isvicre": "Isvicre", "avusturya": "Avusturya",
+        "portekiz": "Portekiz", "belcika": "Belcika", "iskandinavya": "Iskandinavya",
+        "polonya": "Polonya", "cekyo": "Cekya", "yunanistan": "Yunanistan",
+        "macaristan": "Macaristan", "diger": "Diger"
     }
     target = mapping.get(cmd)
     if target and target in CITY_DIRECTORY:
@@ -734,7 +677,7 @@ async def radar_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global RADAR_CALISIYOR
     chat_id = update.effective_chat.id
     if RADAR_CALISIYOR:
-        await update.message.reply_text("⚠️ Radar şu anda işlem yapıyor, lütfen taramanın bitmesini bekle.")
+        await update.message.reply_text("⚠️ Radar şu anda işlem yapıyor, lütfen bekle.")
         return
 
     text = update.message.text.strip()
@@ -743,7 +686,7 @@ async def radar_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text.startswith("/radar"):
         args = context.args
         if not args:
-            await update.message.reply_text("Lütfen bir şehir belirt! Örn: `/radar berlin` veya `/radar_roma`")
+            await update.message.reply_text("Örnek: `/radar berlin` veya `/radar_roma`")
             return
         sehir = " ".join(args).strip()
     else:
@@ -794,13 +737,13 @@ async def durum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def csv_indir_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not os.path.exists(CSV_FILE):
-        await update.message.reply_text("⚠️ Henüz oluşturulmuş bir restoranlar.csv dosyası yok.")
+        await update.message.reply_text("⚠️ Henüz kayıtlı CSV dosyası yok.")
         return
     with open(CSV_FILE, "rb") as f:
         await update.message.reply_document(
             document=f,
             filename="restoranlar.csv",
-            caption="💾 İşte sunucudaki güncel liste!"
+            caption="💾 Güncel CSV listesi."
         )
 
 async def dosya_yukle_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -826,14 +769,13 @@ async def dosya_yukle_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"Kalan: {toplam - gonderilen_sayisi}"
         )
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Dosya yüklendi fakat okunurken bir sorun oluştu: {e}")
+        await update.message.reply_text(f"⚠️ Dosya hatası: {e}")
 
 async def main():
     if not TELEGRAM_TOKEN:
         logger.error("HATA: TELEGRAM_TOKEN bulunamadı!")
         return
 
-    # Start Flask Web Keep-Alive Thread
     t = threading.Thread(target=run_web, daemon=True)
     t.start()
 
@@ -848,7 +790,6 @@ async def main():
     bot_app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), dosya_yukle_handler))
     bot_app.add_handler(CommandHandler("radar", radar_dispatcher))
 
-    # Country Shortcuts
     country_commands = [
         "almanya", "amerika", "italya", "fransa", "ispanya", "hollanda",
         "ingiltere", "isvicre", "avusturya", "portekiz", "belcika",
@@ -857,7 +798,6 @@ async def main():
     for c_cmd in country_commands:
         bot_app.add_handler(CommandHandler(c_cmd, country_shortcut_handler))
 
-    # Catch-all regex handler for any /radar_<city> command
     bot_app.add_handler(MessageHandler(filters.Regex(r"^/radar_"), radar_dispatcher))
 
     async with bot_app:
