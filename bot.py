@@ -6,10 +6,8 @@ import random
 import threading
 import logging
 import asyncio
-from urllib.parse import urljoin, urlparse
 from email.message import EmailMessage
 import requests
-from bs4 import BeautifulSoup
 import pandas as pd
 from flask import Flask
 from telegram import Update
@@ -34,11 +32,8 @@ CALISIYOR = False
 RADAR_CALISIYOR = False
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9,de;q=0.8,nl;q=0.7",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+    "User-Agent": "StajBotApp/1.0 (contact: durmaz40ali@gmail.com)"
 }
-EMAIL_REGEX = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
 
 # --- WEB SUNUCUSU (UptimeRobot / Render portu için) ---
 server = Flask(__name__)
@@ -86,93 +81,49 @@ E-Mail: durmaz40ali@gmail.com"""
     }
 }
 
-# --- RADAR FONKSİYONLARI (ENGEL GEÇİRMEZ ÇEKİRDEK) ---
-def webden_mail_topla(url):
-    emails = set()
+# --- RESMİ VERİTABANI RADARI (OpenStreetMap Overpass API) ---
+def haritadan_otel_ve_mail_topla(sehir):
+    overpass_url = "https://overpass-api.de/api/interpreter"
+    # Şehirdeki e-postası kayıtlı tüm otel ve restoranları doğrudan sorgular
+    query = f"""
+    [out:json][timeout:30];
+    area[name~"{sehir}", i]->.searchArea;
+    (
+      node["tourism"="hotel"]["email"](area.searchArea);
+      way["tourism"="hotel"]["email"](area.searchArea);
+      node["amenity"="restaurant"]["email"](area.searchArea);
+      way["amenity"="restaurant"]["email"](area.searchArea);
+    );
+    out tags;
+    """
+    sonuclar = []
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=7)
+        resp = requests.post(overpass_url, data={"data": query}, headers=HEADERS, timeout=35)
         if resp.status_code == 200:
-            found = re.findall(EMAIL_REGEX, resp.text)
-            for e in found:
-                e_low = e.lower()
-                if not any(ext in e_low for ext in ['.png', '.jpg', '.jpeg', '.gif', '.svg', 'wix', 'sentry', 'bootstrap', 'example', 'domain']):
-                    emails.add(e)
-            
-            # Alt sayfalar
-            sub_paths = ['/contact', '/kontakt', '/impressum', '/about', '/contact-us', '/career', '/jobs']
-            domain = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
-            for path in sub_paths:
-                try:
-                    s_resp = requests.get(urljoin(domain, path), headers=HEADERS, timeout=5)
-                    s_found = re.findall(EMAIL_REGEX, s_resp.text)
-                    for e in s_found:
-                        e_low = e.lower()
-                        if not any(ext in e_low for ext in ['.png', '.jpg', '.jpeg', '.svg', 'sentry', 'wix']):
-                            emails.add(e)
-                except:
-                    continue
-    except:
-        pass
-    return list(emails)
-
-def hedef_siteleri_bul(sehir):
-    siteler = []
-    # 1. Kaynak: Wikipedia API üzerinden o şehirdeki otellerin doğrudan resmi linkleri (IP ban yemez)
-    try:
-        wiki_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search=Hotels_in_{sehir}&limit=5&format=json"
-        w_resp = requests.get(wiki_url, headers=HEADERS, timeout=8).json()
-        if len(w_resp) > 3 and w_resp[3]:
-            for w_link in w_resp[3]:
-                page_resp = requests.get(w_link, headers=HEADERS, timeout=8)
-                soup = BeautifulSoup(page_resp.text, 'html.parser')
-                for a in soup.find_all('a', class_='external text'):
-                    href = a.get('href')
-                    if href and href.startswith('http') and not any(x in href for x in ['wikipedia', 'wikidata', 'google']):
-                        siteler.append(href)
+            data = resp.json()
+            for element in data.get("elements", []):
+                tags = element.get("tags", {})
+                isim = tags.get("name")
+                email = tags.get("email") or tags.get("contact:email")
+                if isim and email:
+                    # Bazen birden fazla mail noktalı virgülle ayrılmıştır
+                    temiz_mailler = [m.strip().lower() for m in email.replace(",", ";").split(";")]
+                    for m in temiz_mailler:
+                        if "@" in m and "." in m:
+                            sonuclar.append({"isim": isim, "email": m})
     except Exception as e:
-        logger.error(f"Wiki aramasi: {e}")
-
-    # 2. Kaynak: Mojeek ve Qwant arama motorları (Cloudflare ve Render IP bloklarına takılmaz)
-    sorgular = [
-        f"luxury hotel in {sehir} official website",
-        f"boutique hotel {sehir} contact",
-        f"michelin star restaurant {sehir} official site"
-    ]
-    for q in sorgular:
-        try:
-            m_url = f"https://www.mojeek.com/search?q={requests.utils.quote(q)}"
-            resp = requests.get(m_url, headers=HEADERS, timeout=8)
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            for a in soup.find_all('a', class_='ob'):
-                href = a.get('href')
-                if href and href.startswith('http'):
-                    siteler.append(href)
-        except Exception as e:
-            logger.error(f"Mojeek arama hatasi: {e}")
-
-    # Rezervasyon ve rehber sitelerini filtrele
-    temiz_siteler = []
-    cop_siteler = ['booking', 'tripadvisor', 'hotels.com', 'expedia', 'yelp', 'kayak', 'trivago', 'instagram', 'facebook', 'youtube', 'wikipedia', 'mojeek']
-    for s in siteler:
-        s_clean = s.strip()
-        parsed = urlparse(s_clean)
-        netloc = parsed.netloc.lower()
-        if not any(cop in netloc for cop in cop_siteler):
-            base = f"{parsed.scheme}://{parsed.netloc}"
-            if base not in temiz_siteler:
-                temiz_siteler.append(base)
-
-    return temiz_siteler[:20]
+        logger.error(f"Harita sorgu hatasi: {e}")
+    return sonuclar
 
 def radar_gorevi(sehir, ulke, chat_id, loop, bot_app):
     global RADAR_CALISIYOR
     RADAR_CALISIYOR = True
     asyncio.run_coroutine_threadsafe(
-        bot_app.bot.send_message(chat_id=chat_id, text=f"🔍 Radar devrede: {sehir} ({ulke}) taranıyor... Hedef siteler inceleniyor."),
+        bot_app.bot.send_message(chat_id=chat_id, text=f"🔍 Radar devrede: {sehir} ({ulke}) harita veritabanı taranıyor..."),
         loop
     )
 
-    siteler = hedef_siteleri_bul(sehir)
+    bulunanlar = haritadan_otel_ve_mail_topla(sehir)
     bulunan_sayisi = 0
 
     if not os.path.exists(CSV_FILE):
@@ -182,32 +133,29 @@ def radar_gorevi(sehir, ulke, chat_id, loop, bot_app):
     df = pd.read_csv(CSV_FILE)
     mevcut_mailler = set(df["Email"].astype(str).str.lower().tolist())
 
-    for site in siteler:
-        domain_name = urlparse(site).netloc.replace('www.', '').split('.')[0].capitalize()
-        mailler = webden_mail_topla(site)
-
-        for m in mailler:
-            m_clean = m.lower().strip()
-            if m_clean not in mevcut_mailler:
-                yeni_satir = pd.DataFrame([{
-                    "Isim": f"{domain_name} Hotel/Restaurant",
-                    "Email": m_clean,
-                    "Ulke": ulke,
-                    "Durum": "Bekliyor"
-                }])
-                df = pd.concat([df, yeni_satir], ignore_index=True)
-                mevcut_mailler.add(m_clean)
-                bulunan_sayisi += 1
-                df.to_csv(CSV_FILE, index=False)
-                asyncio.run_coroutine_threadsafe(
-                    bot_app.bot.send_message(chat_id=chat_id, text=f"🎯 Yeni Hedef Bulundu!\nİşletme: {domain_name}\nMail: {m_clean}\nÜlke: {ulke}"),
-                    loop
-                )
-        time.sleep(1)
+    for item in bulunanlar:
+        m_clean = item["email"]
+        sirket = item["isim"]
+        if m_clean not in mevcut_mailler:
+            yeni_satir = pd.DataFrame([{
+                "Isim": sirket,
+                "Email": m_clean,
+                "Ulke": ulke,
+                "Durum": "Bekliyor"
+            }])
+            df = pd.concat([df, yeni_satir], ignore_index=True)
+            mevcut_mailler.add(m_clean)
+            bulunan_sayisi += 1
+            df.to_csv(CSV_FILE, index=False)
+            asyncio.run_coroutine_threadsafe(
+                bot_app.bot.send_message(chat_id=chat_id, text=f"🎯 Yeni Hedef Bulundu!\nİşletme: {sirket}\nMail: {m_clean}\nÜlke: {ulke}"),
+                loop
+            )
+            time.sleep(0.3)
 
     RADAR_CALISIYOR = False
     asyncio.run_coroutine_threadsafe(
-        bot_app.bot.send_message(chat_id=chat_id, text=f"🏁 Radar bitti! Toplam {bulunan_sayisi} yeni işletme eklendi."),
+        bot_app.bot.send_message(chat_id=chat_id, text=f"🏁 Radar bitti! {sehir} için toplam {bulunan_sayisi} yeni işletme eklendi."),
         loop
     )
 
@@ -295,7 +243,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👋 Selam Ali! Sistem aktif.\n"
         f"Senin Chat ID: `{chat_id}`\n\n"
         "Komutlar:\n"
-        "🔎 /radar <sehir> - Otel ve mail tarar\n"
+        "🔎 /radar <sehir> - Haritadan doğrudan otel ve mailleri çeker\n"
         "🚀 /baslat - Mail gönderimini başlatır\n"
         "🛑 /durdur - Gönderimi durdurur\n"
         "📊 /durum - Liste durumunu gösterir"
@@ -311,7 +259,7 @@ async def radar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     args = context.args
     if not args:
-        await update.message.reply_text("Lütfen bir şehir belirt! Örn:\n/radar Amsterdam\n/radar Berlin")
+        await update.message.reply_text("Lütfen bir şehir belirt! Örn:\n/radar Berlin\n/radar Frankfurt")
         return
 
     sehir = " ".join(args).strip()
