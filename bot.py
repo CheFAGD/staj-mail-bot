@@ -4,6 +4,7 @@ import smtplib
 import time
 import random
 import threading
+import logging
 from urllib.parse import urljoin, urlparse
 from email.message import EmailMessage
 import requests
@@ -12,6 +13,12 @@ import pandas as pd
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
+# --- LOG AYARLARI (Render logunda her seyi gormek icin) ---
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # --- AYARLAR ---
 GMAIL_USER = "durmaz40ali@gmail.com"
@@ -30,16 +37,17 @@ HEADERS = {
 }
 EMAIL_REGEX = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
 
-# --- WEB SUNUCUSU (Render & UptimeRobot için) ---
-app = Flask(__name__)
+# --- WEB SUNUCUSU (UptimeRobot / Render portu icin) ---
+server = Flask(__name__)
 
-@app.route('/')
+@server.route('/')
 def home():
-    return "Radar ve Mail Botu Calisiyor!"
+    return "Bot ve Web Sunucusu 7/24 Aktif!"
 
-def run_flask():
+def run_web():
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    logger.info(f"Web sunucusu baslatiliyor: Port {port}")
+    server.run(host="0.0.0.0", port=port, use_reloader=False)
 
 # --- MAİL ŞABLONLARI ---
 TEMPLATES = {
@@ -116,13 +124,13 @@ def duckduckgo_arama(sorgu):
                 import urllib.parse
                 linkler.append(urllib.parse.unquote(real_url))
     except Exception as e:
-        print(f"Arama hatasi: {e}")
+        logger.error(f"Arama hatasi: {e}")
     return list(set(linkler))[:15]
 
 def radar_gorevi(sehir, ulke, chat_id, bot_app):
     global RADAR_CALISIYOR
     RADAR_CALISIYOR = True
-    bot_app.bot.send_message(chat_id=chat_id, text=f"🔍 Radar devrede: {sehir} ({ulke}) için oteller taranıyor...")
+    bot_app.bot.send_message(chat_id=chat_id, text=f"🔍 Radar devrede: {sehir} ({ulke}) taranıyor...")
 
     sorgular = [
         f"luxury hotels in {sehir} official site",
@@ -164,9 +172,9 @@ def radar_gorevi(sehir, ulke, chat_id, bot_app):
             time.sleep(2)
 
     RADAR_CALISIYOR = False
-    bot_app.bot.send_message(chat_id=chat_id, text=f"🏁 Radar tamamlandı! Toplam {bulunan_sayisi} yeni işletme listeye eklendi.")
+    bot_app.bot.send_message(chat_id=chat_id, text=f"🏁 Radar bitti! Toplam {bulunan_sayisi} yeni işletme eklendi.")
 
-# --- MAİL GÖNDERME İŞLEMLERİ ---
+# --- MAİL GÖNDERME ---
 def mail_at(alici_mail, sirket, ulke):
     dil = "DE" if str(ulke).upper() == "DE" else "NL"
     ayar = TEMPLATES[dil]
@@ -181,17 +189,18 @@ def mail_at(alici_mail, sirket, ulke):
         with open(CV_FILE, "rb") as f:
             msg.add_attachment(f.read(), maintype="application", subtype="pdf", filename="Ali_Gorkem_Durmaz_CV.pdf")
     else:
+        logger.error(f"CV dosyasi bulunamadi: {CV_FILE}")
         return False
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(GMAIL_USER, GMAIL_APP_PASS)
-        server.send_message(msg)
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+        s.login(GMAIL_USER, GMAIL_APP_PASS)
+        s.send_message(msg)
     return True
 
 def mail_gonderim_gorevi(chat_id, bot_app):
     global CALISIYOR
     if not os.path.exists(CSV_FILE):
-        bot_app.bot.send_message(chat_id=chat_id, text="Hata: restoranlar.csv bulunamadı.")
+        bot_app.bot.send_message(chat_id=chat_id, text="Hata: restoranlar.csv bulunamadi.")
         return
 
     df = pd.read_csv(CSV_FILE)
@@ -233,15 +242,15 @@ def mail_gonderim_gorevi(chat_id, bot_app):
 # --- TELEGRAM KOMUTLARI ---
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    logger.info(f"/start komutu alindi. Chat ID: {chat_id}")
     mesaj = (
         f"👋 Selam Ali! Sistem bağlandı ve hazır.\n"
         f"Senin Chat ID: `{chat_id}`\n\n"
         "Komutlar:\n"
-        "🔎 /radar <sehir> - Otel/restoran ve e-posta bulur\n"
-        "   (Örn: /radar Amsterdam veya /radar Berlin)\n"
+        "🔎 /radar <sehir> - Hedefleri otomatik bulur\n"
         "🚀 /baslat - Mail gönderimini başlatır\n"
         "🛑 /durdur - Gönderimi durdurur\n"
-        "📊 /durum - Liste özetini gösterir"
+        "📊 /durum - Liste durumunu gösterir"
     )
     await update.message.reply_text(mesaj, parse_mode="Markdown")
 
@@ -271,7 +280,7 @@ async def baslat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     CALISIYOR = True
-    await update.message.reply_text("🚀 Mail gönderimi başladı! Bildirimler buradan gelecek.")
+    await update.message.reply_text("🚀 Mail gönderimi başladı!")
     threading.Thread(target=mail_gonderim_gorevi, args=(chat_id, context.application)).start()
 
 async def durdur_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -288,21 +297,31 @@ async def durum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     toplam = len(df)
     await update.message.reply_text(
         f"📊 Durum Özeti:\n"
-        f"Toplam Kayıtlı İşletme: {toplam}\n"
-        f"Mail Gönderilen: {gonderilen}\n"
+        f"Toplam Kayıtlı: {toplam}\n"
+        f"Gönderilen: {gonderilen}\n"
         f"Kalan: {toplam - gonderilen}\n"
         f"Gönderim Aktif mi?: {'Evet' if CALISIYOR else 'Hayır'}\n"
         f"Radar Aktif mi?: {'Evet' if RADAR_CALISIYOR else 'Hayır'}"
     )
 
 if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
-
-    bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    bot_app.add_handler(CommandHandler("start", start_cmd))
-    bot_app.add_handler(CommandHandler("radar", radar_cmd))
-    bot_app.add_handler(CommandHandler("baslat", baslat_cmd))
-    bot_app.add_handler(CommandHandler("durdur", durdur_cmd))
-    bot_app.add_handler(CommandHandler("durum", durum_cmd))
+    logger.info("Uygulama baslatiliyor...")
     
-    bot_app.run_polling()
+    # 1. Web sunucusunu arka plan daemon thread olarak baslat (bloklamaz)
+    t = threading.Thread(target=run_web, daemon=True)
+    t.start()
+
+    # 2. Telegram Botunu baslat
+    if not TELEGRAM_TOKEN:
+        logger.error("HATA: TELEGRAM_TOKEN ortam degiskeni tanimli degil!")
+    else:
+        logger.info("Telegram bot olusturuluyor...")
+        bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+        bot_app.add_handler(CommandHandler("start", start_cmd))
+        bot_app.add_handler(CommandHandler("radar", radar_cmd))
+        bot_app.add_handler(CommandHandler("baslat", baslat_cmd))
+        bot_app.add_handler(CommandHandler("durdur", durdur_cmd))
+        bot_app.add_handler(CommandHandler("durum", durum_cmd))
+        
+        logger.info("Telegram polling baslatiliyor...")
+        bot_app.run_polling(drop_pending_updates=True)
