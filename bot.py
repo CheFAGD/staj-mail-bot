@@ -6,7 +6,7 @@ import random
 import threading
 import logging
 import asyncio
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -38,6 +38,7 @@ CV_FILE = "Ali_Gorkem_Durmaz_CV.pdf"
 CALISIYOR = False
 RADAR_CALISIYOR = False
 
+# Permanent hardcoded sent history preventing duplicate dispatches
 PERMANENT_SENT_EMAILS = {
     # Amsterdam
     "amsterdam.info@waldorfastoria.com",
@@ -72,13 +73,14 @@ PERMANENT_SENT_EMAILS = {
     "berlin.grand@hyatt.com",
     "stay@so-berlin-das-stue.com",
     "reservations.derome@roccofortehotels.com",
-    # Köln
+    # Koln
     "info@excelsior-hotel-ernst.de",
     "cologne.regency@hyatt.com",
     "taku@excelsior-hotel-ernst.de",
     "contact@lemoissonnier.de",
 }
 
+# Comprehensive City and Country Directory for instant UI commands
 CITY_DIRECTORY = {
     "Almanya": [
         "Berlin", "Munich", "Frankfurt", "Hamburg", "Koln", "Dusseldorf",
@@ -148,7 +150,7 @@ CITY_DIRECTORY = {
 }
 
 def slugify(text: str) -> str:
-    """Standardizes input for Telegram command compatibility (a-z0-9_ only)."""
+    """Sanitizes any string into ASCII a-z0-9_ for Telegram command compatibility."""
     text = text.lower().strip()
     replacements = {
         "ü": "u", "ö": "o", "ş": "s", "ı": "i", "ğ": "g", "ç": "c",
@@ -161,7 +163,7 @@ def slugify(text: str) -> str:
     return text
 
 def get_country_code(city_slug: str) -> str:
-    """Resolves target language and country code based on city keywords."""
+    """Maps cities to national codes (DE/AT vs EN international template)."""
     clean = city_slug.lower().replace("_", "")
     de_cities = [
         "berlin", "munich", "munchen", "frankfurt", "hamburg", "koln",
@@ -185,143 +187,225 @@ IGNORE_EXTENSIONS = (
     '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css',
     '.js', '.woff', '.woff2', '.ttf'
 )
+USER_AGENT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9,de;q=0.8"
+}
 
 def extract_email_from_website(website_url: str) -> str:
-    """Inspects a venue website and extracts valid recruitment / info email addresses."""
+    """Crawls official venue homepages and contact/career subpages to discover emails."""
     if not website_url or not website_url.startswith("http"):
         return ""
     
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        )
-    }
-    
     try:
-        resp = requests.get(website_url, headers=headers, timeout=8)
+        resp = requests.get(website_url, headers=USER_AGENT_HEADERS, timeout=7)
         if resp.status_code == 200:
             emails = set(EMAIL_REGEX.findall(resp.text))
-            valid_emails = [
+            valid = [
                 e for e in emails 
                 if not e.lower().endswith(IGNORE_EXTENSIONS) 
-                and "wixpress" not in e.lower() 
-                and "sentry" not in e.lower()
-                and "example" not in e.lower()
-                and "schema" not in e.lower()
+                and not any(x in e.lower() for x in ["wix", "sentry", "example", "schema", "bootstrap", "wordpress"])
             ]
-            if valid_emails:
-                for mail in valid_emails:
-                    m_lower = mail.lower()
-                    if any(k in m_lower for k in [
-                        "karriere", "career", "hr", "jobs", "recruitment",
-                        "info", "kontakt", "contact", "reservation"
-                    ]):
+            if valid:
+                for mail in valid:
+                    m = mail.lower()
+                    if any(k in m for k in ["karriere", "career", "hr", "jobs", "recruitment", "info", "kontakt", "contact"]):
                         return mail
-                return valid_emails[0]
+                return valid[0]
             
-            # Deep contact page crawl
+            # Sub-crawl for Contact / Jobs links
             soup = BeautifulSoup(resp.text, "html.parser")
-            contact_links = []
+            sub_links = []
             for a in soup.find_all("a", href=True):
                 href = a['href'].lower()
                 if any(x in href for x in ["contact", "kontakt", "impressum", "career", "jobs", "about"]):
                     if a['href'].startswith("http"):
-                        contact_links.append(a['href'])
+                        sub_links.append(a['href'])
                     else:
                         base = "{uri.scheme}://{uri.netloc}".format(uri=urlparse(website_url))
-                        contact_links.append(
-                            base + ("/" if not a['href'].startswith("/") else "") + a['href']
-                        )
+                        sub_links.append(base + ("/" if not a['href'].startswith("/") else "") + a['href'])
             
-            for c_url in contact_links[:3]:
+            for s_url in sub_links[:3]:
                 try:
-                    c_resp = requests.get(c_url, headers=headers, timeout=6)
-                    if c_resp.status_code == 200:
-                        c_emails = set(EMAIL_REGEX.findall(c_resp.text))
-                        valid_c = [
-                            e for e in c_emails 
+                    s_resp = requests.get(s_url, headers=USER_AGENT_HEADERS, timeout=6)
+                    if s_resp.status_code == 200:
+                        s_emails = set(EMAIL_REGEX.findall(s_resp.text))
+                        valid_sub = [
+                            e for e in s_emails 
                             if not e.lower().endswith(IGNORE_EXTENSIONS) 
-                            and "wix" not in e.lower() 
-                            and "sentry" not in e.lower()
+                            and not any(x in e.lower() for x in ["wix", "sentry", "example", "schema"])
                         ]
-                        if valid_c:
-                            for c_mail in valid_c:
-                                if any(k in c_mail.lower() for k in [
-                                    "career", "jobs", "hr", "karriere", "kontakt", "info"
-                                ]):
+                        if valid_sub:
+                            for c_mail in valid_sub:
+                                if any(k in c_mail.lower() for k in ["career", "jobs", "hr", "karriere", "kontakt", "info"]):
                                     return c_mail
-                            return valid_c[0]
+                            return valid_sub[0]
                 except Exception:
                     continue
     except Exception:
         pass
     return ""
 
-def live_search_venues(city: str, limit: int = 25):
+def live_serp_crawler(city: str, limit: int = 15):
     """
-    Scrapes 4/5-star luxury hotels and fine dining restaurants in real-time
-    from OpenStreetMap Overpass API for ANY city worldwide.
+    Searches the live public web using targeted search queries to directly extract
+    real hotel & fine dining contact email addresses for the designated city.
+    """
+    clean_city = city.replace("_", " ").title()
+    search_queries = [
+        f'"{clean_city}" luxury hotel email contact OR karriere OR jobs',
+        f'"{clean_city}" fine dining restaurant email OR kontakt OR career',
+        f'"{clean_city}" boutique hotel email info OR reservations'
+    ]
+    
+    found = []
+    seen_emails = set()
+
+    for q in search_queries:
+        if len(found) >= limit:
+            break
+        try:
+            url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(q)}"
+            resp = requests.post(
+                "https://html.duckduckgo.com/html/",
+                data={"q": q},
+                headers=USER_AGENT_HEADERS,
+                timeout=10
+            )
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                results = soup.select(".result")
+                for r in results:
+                    title_elem = r.select_one(".result__title")
+                    snip_elem = r.select_one(".result__snippet")
+                    url_elem = r.select_one(".result__url")
+                    
+                    raw_text = (snip_elem.get_text() if snip_elem else "") + " " + (title_elem.get_text() if title_elem else "")
+                    emails = set(EMAIL_REGEX.findall(raw_text))
+                    
+                    venue_title = title_elem.get_text(strip=True) if title_elem else f"Hospitality {clean_city}"
+                    venue_title = re.sub(r"(\.\.\.| - .*| \| .*)", "", venue_title).strip()
+                    if not venue_title:
+                        venue_title = f"Luxury Venue {clean_city}"
+
+                    for email in emails:
+                        e_clean = email.lower().strip()
+                        if not e_clean.endswith(IGNORE_EXTENSIONS) and e_clean not in seen_emails and "duckduckgo" not in e_clean:
+                            seen_emails.add(e_clean)
+                            found.append({"isim": venue_title, "email": e_clean})
+                            break
+                    
+                    # If snippet didn't have email directly, crawl destination domain
+                    if url_elem and len(found) < limit:
+                        link_href = url_elem.get_text(strip=True)
+                        if link_href and not link_href.startswith("http"):
+                            link_href = "https://" + link_href
+                        extracted = extract_email_from_website(link_href)
+                        if extracted and extracted.lower() not in seen_emails:
+                            seen_emails.add(extracted.lower())
+                            found.append({"isim": venue_title, "email": extracted.strip()})
+        except Exception as e:
+            logger.warning(f"SERP arama uyarisi ({q}): {e}")
+            continue
+
+    return found
+
+def live_search_venues(city: str, limit: int = 30):
+    """
+    Harvests luxury venues using a robust 2-stage pipeline:
+    1. OpenStreetMap Overpass bounding box query with direct contact extraction.
+    2. Deep SERP search engine fallback crawler ensuring endless real-time discoverability.
     """
     clean_city = city.strip().replace("_", " ").title()
-    logger.info(f"Otonom canlı radar çalışıyor: {clean_city}")
-    
-    overpass_url = "https://overpass-api.de/api/interpreter"
-    query = f"""
-    [out:json][timeout:25];
-    area["name"="{clean_city}"]["boundary"="administrative"]->.searchArea;
-    (
-      node["tourism"="hotel"]["stars"~"4|5"](area.searchArea);
-      way["tourism"="hotel"]["stars"~"4|5"](area.searchArea);
-      node["amenity"="restaurant"]["cuisine"~"fine_dining|french|italian|modern|gourmet"](area.searchArea);
-      way["amenity"="restaurant"]["cuisine"~"fine_dining|french|italian|modern|gourmet"](area.searchArea);
-      node["tourism"="hotel"](area.searchArea);
-      node["amenity"="restaurant"](area.searchArea);
-    );
-    out tags {limit * 4};
-    """
-    
+    logger.info(f"Otonom radar sahada: {clean_city}")
     results = []
+    seen_emails = set()
+
+    # Stage 1: Geocoded Bounding Box via Nominatim + Overpass
     try:
-        response = requests.post(overpass_url, data={'data': query}, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            elements = data.get("elements", [])
+        nom_url = f"https://nominatim.openstreetmap.org/search?city={clean_city}&format=json&limit=1"
+        nom_resp = requests.get(nom_url, headers=USER_AGENT_HEADERS, timeout=8)
+        bbox = None
+        if nom_resp.status_code == 200 and nom_resp.json():
+            bb = nom_resp.json()[0].get("boundingbox", [])
+            if len(bb) == 4:
+                # south, north, west, east -> south, west, north, east
+                bbox = f"{bb[0]},{bb[2]},{bb[1]},{bb[3]}"
+
+        overpass_url = "https://overpass-api.de/api/interpreter"
+        if bbox:
+            query = f"""
+            [out:json][timeout:20];
+            (
+              nwr["tourism"="hotel"]({bbox});
+              nwr["amenity"="restaurant"]["cuisine"~"fine_dining|french|italian|gourmet|steak_house"]({bbox});
+            );
+            out tags 100;
+            """
+        else:
+            query = f"""
+            [out:json][timeout:20];
+            area["name"="{clean_city}"]->.a;
+            (
+              nwr["tourism"="hotel"](area.a);
+              nwr["amenity"="restaurant"](area.a);
+            );
+            out tags 100;
+            """
+
+        op_resp = requests.post(overpass_url, data={'data': query}, timeout=22)
+        if op_resp.status_code == 200:
+            elements = op_resp.json().get("elements", [])
             for elem in elements:
                 tags = elem.get("tags", {})
                 name = tags.get("name")
                 if not name:
                     continue
-                
                 email = tags.get("email") or tags.get("contact:email")
                 website = tags.get("website") or tags.get("contact:website")
                 
                 if email and "@" in email:
-                    results.append({"isim": name, "email": email.strip()})
-                elif website:
+                    e_clean = email.strip().lower()
+                    if e_clean not in seen_emails:
+                        seen_emails.add(e_clean)
+                        results.append({"isim": name, "email": e_clean})
+                elif website and len(results) < limit:
                     extracted = extract_email_from_website(website)
-                    if extracted:
+                    if extracted and extracted.lower() not in seen_emails:
+                        seen_emails.add(extracted.lower())
                         results.append({"isim": name, "email": extracted.strip()})
                 
                 if len(results) >= limit:
                     break
     except Exception as e:
-        logger.error(f"Canlı radar tarama hatası ({clean_city}): {e}")
-        
+        logger.warning(f"Overpass harita tarama atlandi: {e}")
+
+    # Stage 2: SERP Crawler to continuously expand pool beyond static boundaries
+    if len(results) < limit:
+        logger.info(f"Canlı SERP radarı devreye giriyor: {clean_city}")
+        serp_results = live_serp_crawler(clean_city, limit=(limit - len(results)))
+        for sr in serp_results:
+            if sr["email"].lower() not in seen_emails:
+                seen_emails.add(sr["email"].lower())
+                results.append(sr)
+
     return results
 
 server = Flask(__name__)
 
 @server.route('/')
 def home():
-    return "Ali Staj Botu 7/24 Otonom Radar Sunucusu Aktif!"
+    return "Ali Staj Botu 7/24 Kesintisiz Otonom Radar Aktif!"
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
     server.run(host="0.0.0.0", port=port, use_reloader=False)
 
 def get_sent_history():
-    """Merges in-memory static blacklist and local persistent storage file."""
+    """Returns all historically contacted emails across memory and storage."""
     sent = set(PERMANENT_SENT_EMAILS)
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -332,14 +416,14 @@ def get_sent_history():
     return sent
 
 def add_to_sent_history(email: str):
-    """Saves sent email address permanently to avoid duplicate dispatches."""
+    """Permanently commits an email to file and memory cache."""
     try:
         clean = email.lower().strip()
         PERMANENT_SENT_EMAILS.add(clean)
         with open(HISTORY_FILE, "a", encoding="utf-8") as f:
             f.write(clean + "\n")
     except Exception as e:
-        logger.error(f"Hafıza dosyasına yazılamadı: {e}")
+        logger.error(f"Hafıza dosyası yazma hatası: {e}")
 
 TEMPLATES = {
     "DE": {
@@ -423,9 +507,9 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
     asyncio.run_coroutine_threadsafe(
         bot_app.bot.send_message(
             chat_id=chat_id, 
-            text=f"🛰️ *Canlı Radar Başlatıldı!*\n"
-                 f"📍 Hedef: `{sehir_temiz}` ({ulke_kodu})\n"
-                 f"İnternet veri tabanları taranıyor, yeni 4-5 yıldızlı oteller ve fine dining restoranlar taranıyor..."
+            text=f"🛰️ *Otonom Canlı Radar Başlatıldı!*\n"
+                 f"📍 Hedef Bölge: `{sehir_temiz}` ({ulke_kodu})\n"
+                 f"İnternet arama motorları ve harita sistemleri taranıyor, yeni işletmeler çekiliyor..."
         ),
         loop
     )
@@ -476,11 +560,12 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
 
     RADAR_CALISIYOR = False
     sonuc_metni = (
-        f"🏁 Radar taraması tamamlandı!\n"
-        f"📍 `{sehir_temiz}` için **{bulunan_sayisi}** yeni işletme eklendi.\n\n"
+        f"🏁 Otonom tarama başarıyla tamamlandı!\n"
+        f"📍 `{sehir_temiz}` için **{bulunan_sayisi}** yeni işletme listeye eklendi.\n\n"
         f"Gönderimi başlatmak için: /baslat"
     ) if bulunan_sayisi > 0 else (
-        f"ℹ️ `{sehir_temiz}` için bulunan işletmelerin tümüne zaten daha önce mail gönderilmiş veya yeni adres tespit edilemedi."
+        f"ℹ️ `{sehir_temiz}` için tespit edilen işletmeler zaten hafızada kayıtlı veya daha önce mail iletilmiş. "
+        f"Dilerseniz gönderimi başlatabilir (/baslat) veya farklı bir şehir taratabilirsiniz."
     )
 
     asyncio.run_coroutine_threadsafe(
@@ -582,13 +667,12 @@ def build_country_message(country_name: str, cities: list) -> str:
     return "\n".join(lines)
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
     mesaj = (
         f"👋 Selam Ali! Küresel Otonom Staj Radarı 7/24 Devrede.\n\n"
-        "🛰️ *Canlı Radar Özelliği:*\n"
-        "Artık hiçbir sabit liste sınırı yok! İstediğin ülkenin menüsünü aç ve doğrudan şehre tıkla. "
-        "Bot internetten o şehirdeki tüm 4-5 yıldızlı otelleri ve lüks restoranları canlı bulup listeye ekler.\n\n"
-        "🌐 *Ülke Kısayol Komutları:*\n"
+        "🛰️ *Tam Otonom Canlı Radar:*\n"
+        "Artık hiçbir manuel sınır yok! İstediğin şehir veya ülkeyi seç, bot internetten "
+        "en lüks otelleri ve restoranları canlı olarak bulup listeye ekler.\n\n"
+        "🌐 *Ülke Menüleri:*\n"
         "👉 /amerika - ABD şehirleri (New York, Miami, LA...)\n"
         "👉 /almanya - Almanya şehirleri (Berlin, Münih, Köln...)\n"
         "👉 /italya - İtalya şehirleri (Roma, Milano, Floransa...)\n"
