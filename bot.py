@@ -17,7 +17,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 GMAIL_USER = "durmaz40ali@gmail.com"
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASS")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
 
 CSV_FILE = "restoranlar.csv"
 CV_FILE = "Ali_Gorkem_Durmaz_CV.pdf"
@@ -30,7 +30,7 @@ HEADERS = {
 }
 EMAIL_REGEX = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
 
-# --- WEB SUNUCUSU (UptimeRobot Uyutmasın Diye) ---
+# --- WEB SUNUCUSU (Render & UptimeRobot için) ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -75,7 +75,7 @@ E-Mail: durmaz40ali@gmail.com"""
     }
 }
 
-# --- RADAR (İNTERNETTEN İŞLETME VE MAİL KAZIMA) ---
+# --- RADAR FONKSİYONLARI ---
 def webden_mail_topla(url):
     emails = set()
     try:
@@ -86,7 +86,6 @@ def webden_mail_topla(url):
                 if not any(ext in e.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif', '.svg', 'wix', 'sentry', 'bootstrap']):
                     emails.add(e)
             
-            # Alt iletisim / kariyer linklerine bak
             sub_paths = ['/contact', '/kontakt', '/impressum', '/jobs', '/career', '/over-ons']
             domain = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
             for path in sub_paths:
@@ -120,10 +119,10 @@ def duckduckgo_arama(sorgu):
         print(f"Arama hatasi: {e}")
     return list(set(linkler))[:15]
 
-def radar_gorevi(sehir, ulke, bot_app):
+def radar_gorevi(sehir, ulke, chat_id, bot_app):
     global RADAR_CALISIYOR
     RADAR_CALISIYOR = True
-    bot_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"🔍 Radar çalışıyor: {sehir} ({ulke}) için oteller ve restoranlar taranıyor...")
+    bot_app.bot.send_message(chat_id=chat_id, text=f"🔍 Radar devrede: {sehir} ({ulke}) için oteller taranıyor...")
 
     sorgular = [
         f"luxury hotels in {sehir} official site",
@@ -161,13 +160,13 @@ def radar_gorevi(sehir, ulke, bot_app):
                     mevcut_mailler.add(m_clean)
                     bulunan_sayisi += 1
                     df.to_csv(CSV_FILE, index=False)
-                    bot_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"🎯 Yeni Hedef Bulundu!\nİşletme: {domain_name}\nMail: {m_clean}\nÜlke: {ulke}")
+                    bot_app.bot.send_message(chat_id=chat_id, text=f"🎯 Yeni Hedef Bulundu!\nİşletme: {domain_name}\nMail: {m_clean}\nÜlke: {ulke}")
             time.sleep(2)
 
     RADAR_CALISIYOR = False
-    bot_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"🏁 Radar tamamlandı! Toplam {bulunan_sayisi} yeni işletme listeye eklendi.")
+    bot_app.bot.send_message(chat_id=chat_id, text=f"🏁 Radar tamamlandı! Toplam {bulunan_sayisi} yeni işletme listeye eklendi.")
 
-# --- MAİL GÖNDERME SİSTEMİ ---
+# --- MAİL GÖNDERME İŞLEMLERİ ---
 def mail_at(alici_mail, sirket, ulke):
     dil = "DE" if str(ulke).upper() == "DE" else "NL"
     ayar = TEMPLATES[dil]
@@ -189,9 +188,10 @@ def mail_at(alici_mail, sirket, ulke):
         server.send_message(msg)
     return True
 
-def mail_gonderim_gorevi(bot_app):
+def mail_gonderim_gorevi(chat_id, bot_app):
     global CALISIYOR
     if not os.path.exists(CSV_FILE):
+        bot_app.bot.send_message(chat_id=chat_id, text="Hata: restoranlar.csv bulunamadı.")
         return
 
     df = pd.read_csv(CSV_FILE)
@@ -214,7 +214,7 @@ def mail_gonderim_gorevi(bot_app):
                 df.to_csv(CSV_FILE, index=False)
                 
                 bot_app.bot.send_message(
-                    chat_id=ADMIN_CHAT_ID, 
+                    chat_id=chat_id, 
                     text=f"✅ Gönderildi:\nİşletme: {sirket} ({ulke})\nMail: {email}"
                 )
                 time.sleep(random.randint(80, 95))
@@ -222,33 +222,32 @@ def mail_gonderim_gorevi(bot_app):
             df.at[idx, "Durum"] = f"Hata: {str(e)[:25]}"
             df.to_csv(CSV_FILE, index=False)
             bot_app.bot.send_message(
-                chat_id=ADMIN_CHAT_ID, 
+                chat_id=chat_id, 
                 text=f"❌ Hata ({sirket}): {e}"
             )
             time.sleep(15)
 
     CALISIYOR = False
-    bot_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text="🏁 Gönderim tamamlandı veya durduruldu.")
+    bot_app.bot.send_message(chat_id=chat_id, text="🏁 Gönderim tamamlandı veya durduruldu.")
 
 # --- TELEGRAM KOMUTLARI ---
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ADMIN_CHAT_ID:
-        return
+    chat_id = update.effective_chat.id
     mesaj = (
-        "👋 Selam Ali! Radar & Staj Botu Hazır.\n\n"
+        f"👋 Selam Ali! Sistem bağlandı ve hazır.\n"
+        f"Senin Chat ID: `{chat_id}`\n\n"
         "Komutlar:\n"
-        "🔎 /radar <sehir> - İnternetten otel/restoran ve mail bulur\n"
+        "🔎 /radar <sehir> - Otel/restoran ve e-posta bulur\n"
         "   (Örn: /radar Amsterdam veya /radar Berlin)\n"
-        "🚀 /baslat - Listedekilere mail atmaya başlar\n"
-        "🛑 /durdur - Mail gönderimini durdurur\n"
-        "📊 /durum - Listede kaç yer var ve kaçı gitti gösterir"
+        "🚀 /baslat - Mail gönderimini başlatır\n"
+        "🛑 /durdur - Gönderimi durdurur\n"
+        "📊 /durum - Liste özetini gösterir"
     )
-    await update.message.reply_text(mesaj)
+    await update.message.reply_text(mesaj, parse_mode="Markdown")
 
 async def radar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global RADAR_CALISIYOR
-    if update.effective_chat.id != ADMIN_CHAT_ID:
-        return
+    chat_id = update.effective_chat.id
     if RADAR_CALISIYOR:
         await update.message.reply_text("⚠️ Radar şu anda zaten çalışıyor!")
         return
@@ -262,30 +261,25 @@ async def radar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     almanya_sehirleri = ['berlin', 'munich', 'münchen', 'frankfurt', 'hamburg', 'cologne', 'köln', 'düsseldorf', 'stuttgart']
     ulke = "DE" if sehir.lower() in almanya_sehirleri else "NL"
 
-    threading.Thread(target=radar_gorevi, args=(sehir, ulke, context.application)).start()
+    threading.Thread(target=radar_gorevi, args=(sehir, ulke, chat_id, context.application)).start()
 
 async def baslat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CALISIYOR
-    if update.effective_chat.id != ADMIN_CHAT_ID:
-        return
+    chat_id = update.effective_chat.id
     if CALISIYOR:
         await update.message.reply_text("⚠️ Sistem zaten çalışıyor.")
         return
     
     CALISIYOR = True
-    await update.message.reply_text("🚀 Mail gönderimi başladı! Gönderildikçe bildirim alacaksın.")
-    threading.Thread(target=mail_gonderim_gorevi, args=(context.application,)).start()
+    await update.message.reply_text("🚀 Mail gönderimi başladı! Bildirimler buradan gelecek.")
+    threading.Thread(target=mail_gonderim_gorevi, args=(chat_id, context.application)).start()
 
 async def durdur_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CALISIYOR
-    if update.effective_chat.id != ADMIN_CHAT_ID:
-        return
     CALISIYOR = False
     await update.message.reply_text("🛑 Gönderim durduruldu.")
 
 async def durum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ADMIN_CHAT_ID:
-        return
     if not os.path.exists(CSV_FILE):
         await update.message.reply_text("Henüz kayıtlı işletme yok.")
         return
