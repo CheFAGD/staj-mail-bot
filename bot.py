@@ -5,6 +5,7 @@ import time
 import random
 import threading
 import logging
+import asyncio
 from urllib.parse import urljoin, urlparse
 from email.message import EmailMessage
 import requests
@@ -14,7 +15,7 @@ from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# --- LOG AYARLARI (Render logunda her seyi gormek icin) ---
+# --- LOG AYARLARI ---
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -37,7 +38,7 @@ HEADERS = {
 }
 EMAIL_REGEX = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
 
-# --- WEB SUNUCUSU (UptimeRobot / Render portu icin) ---
+# --- WEB SUNUCUSU (UptimeRobot / Render portu için) ---
 server = Flask(__name__)
 
 @server.route('/')
@@ -127,10 +128,13 @@ def duckduckgo_arama(sorgu):
         logger.error(f"Arama hatasi: {e}")
     return list(set(linkler))[:15]
 
-def radar_gorevi(sehir, ulke, chat_id, bot_app):
+def radar_gorevi(sehir, ulke, chat_id, loop, bot_app):
     global RADAR_CALISIYOR
     RADAR_CALISIYOR = True
-    bot_app.bot.send_message(chat_id=chat_id, text=f"🔍 Radar devrede: {sehir} ({ulke}) taranıyor...")
+    asyncio.run_coroutine_threadsafe(
+        bot_app.bot.send_message(chat_id=chat_id, text=f"🔍 Radar devrede: {sehir} ({ulke}) taranıyor..."),
+        loop
+    )
 
     sorgular = [
         f"luxury hotels in {sehir} official site",
@@ -168,11 +172,17 @@ def radar_gorevi(sehir, ulke, chat_id, bot_app):
                     mevcut_mailler.add(m_clean)
                     bulunan_sayisi += 1
                     df.to_csv(CSV_FILE, index=False)
-                    bot_app.bot.send_message(chat_id=chat_id, text=f"🎯 Yeni Hedef Bulundu!\nİşletme: {domain_name}\nMail: {m_clean}\nÜlke: {ulke}")
+                    asyncio.run_coroutine_threadsafe(
+                        bot_app.bot.send_message(chat_id=chat_id, text=f"🎯 Yeni Hedef Bulundu!\nİşletme: {domain_name}\nMail: {m_clean}\nÜlke: {ulke}"),
+                        loop
+                    )
             time.sleep(2)
 
     RADAR_CALISIYOR = False
-    bot_app.bot.send_message(chat_id=chat_id, text=f"🏁 Radar bitti! Toplam {bulunan_sayisi} yeni işletme eklendi.")
+    asyncio.run_coroutine_threadsafe(
+        bot_app.bot.send_message(chat_id=chat_id, text=f"🏁 Radar bitti! Toplam {bulunan_sayisi} yeni işletme eklendi."),
+        loop
+    )
 
 # --- MAİL GÖNDERME ---
 def mail_at(alici_mail, sirket, ulke):
@@ -197,10 +207,13 @@ def mail_at(alici_mail, sirket, ulke):
         s.send_message(msg)
     return True
 
-def mail_gonderim_gorevi(chat_id, bot_app):
+def mail_gonderim_gorevi(chat_id, loop, bot_app):
     global CALISIYOR
     if not os.path.exists(CSV_FILE):
-        bot_app.bot.send_message(chat_id=chat_id, text="Hata: restoranlar.csv bulunamadi.")
+        asyncio.run_coroutine_threadsafe(
+            bot_app.bot.send_message(chat_id=chat_id, text="Hata: restoranlar.csv bulunamadi."),
+            loop
+        )
         return
 
     df = pd.read_csv(CSV_FILE)
@@ -222,32 +235,41 @@ def mail_gonderim_gorevi(chat_id, bot_app):
                 df.at[idx, "Durum"] = "Gonderildi"
                 df.to_csv(CSV_FILE, index=False)
                 
-                bot_app.bot.send_message(
-                    chat_id=chat_id, 
-                    text=f"✅ Gönderildi:\nİşletme: {sirket} ({ulke})\nMail: {email}"
+                asyncio.run_coroutine_threadsafe(
+                    bot_app.bot.send_message(
+                        chat_id=chat_id, 
+                        text=f"✅ Gönderildi:\nİşletme: {sirket} ({ulke})\nMail: {email}"
+                    ),
+                    loop
                 )
                 time.sleep(random.randint(80, 95))
         except Exception as e:
             df.at[idx, "Durum"] = f"Hata: {str(e)[:25]}"
             df.to_csv(CSV_FILE, index=False)
-            bot_app.bot.send_message(
-                chat_id=chat_id, 
-                text=f"❌ Hata ({sirket}): {e}"
+            asyncio.run_coroutine_threadsafe(
+                bot_app.bot.send_message(
+                    chat_id=chat_id, 
+                    text=f"❌ Hata ({sirket}): {e}"
+                ),
+                loop
             )
             time.sleep(15)
 
     CALISIYOR = False
-    bot_app.bot.send_message(chat_id=chat_id, text="🏁 Gönderim tamamlandı veya durduruldu.")
+    asyncio.run_coroutine_threadsafe(
+        bot_app.bot.send_message(chat_id=chat_id, text="🏁 Gönderim tamamlandı veya durduruldu."),
+        loop
+    )
 
 # --- TELEGRAM KOMUTLARI ---
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    logger.info(f"/start komutu alindi. Chat ID: {chat_id}")
+    logger.info(f"/start komutu calisti: {chat_id}")
     mesaj = (
         f"👋 Selam Ali! Sistem bağlandı ve hazır.\n"
         f"Senin Chat ID: `{chat_id}`\n\n"
         "Komutlar:\n"
-        "🔎 /radar <sehir> - Hedefleri otomatik bulur\n"
+        "🔎 /radar <sehir> - Otel ve mail tarar\n"
         "🚀 /baslat - Mail gönderimini başlatır\n"
         "🛑 /durdur - Gönderimi durdurur\n"
         "📊 /durum - Liste durumunu gösterir"
@@ -270,7 +292,8 @@ async def radar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     almanya_sehirleri = ['berlin', 'munich', 'münchen', 'frankfurt', 'hamburg', 'cologne', 'köln', 'düsseldorf', 'stuttgart']
     ulke = "DE" if sehir.lower() in almanya_sehirleri else "NL"
 
-    threading.Thread(target=radar_gorevi, args=(sehir, ulke, chat_id, context.application)).start()
+    loop = asyncio.get_running_loop()
+    threading.Thread(target=radar_gorevi, args=(sehir, ulke, chat_id, loop, context.application), daemon=True).start()
 
 async def baslat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CALISIYOR
@@ -281,7 +304,8 @@ async def baslat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     CALISIYOR = True
     await update.message.reply_text("🚀 Mail gönderimi başladı!")
-    threading.Thread(target=mail_gonderim_gorevi, args=(chat_id, context.application)).start()
+    loop = asyncio.get_running_loop()
+    threading.Thread(target=mail_gonderim_gorevi, args=(chat_id, loop, context.application), daemon=True).start()
 
 async def durdur_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CALISIYOR
@@ -304,24 +328,33 @@ async def durum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Radar Aktif mi?: {'Evet' if RADAR_CALISIYOR else 'Hayır'}"
     )
 
-if __name__ == "__main__":
-    logger.info("Uygulama baslatiliyor...")
-    
-    # 1. Web sunucusunu arka plan daemon thread olarak baslat (bloklamaz)
+async def main():
+    logger.info("Bot baslatiliyor...")
+    if not TELEGRAM_TOKEN:
+        logger.error("HATA: TELEGRAM_TOKEN ortam degiskeni bulunamadi!")
+        return
+
+    # Arka planda Flask sunucusunu calistir
     t = threading.Thread(target=run_web, daemon=True)
     t.start()
 
-    # 2. Telegram Botunu baslat
-    if not TELEGRAM_TOKEN:
-        logger.error("HATA: TELEGRAM_TOKEN ortam degiskeni tanimli degil!")
-    else:
-        logger.info("Telegram bot olusturuluyor...")
-        bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-        bot_app.add_handler(CommandHandler("start", start_cmd))
-        bot_app.add_handler(CommandHandler("radar", radar_cmd))
-        bot_app.add_handler(CommandHandler("baslat", baslat_cmd))
-        bot_app.add_handler(CommandHandler("durdur", durdur_cmd))
-        bot_app.add_handler(CommandHandler("durum", durum_cmd))
-        
-        logger.info("Telegram polling baslatiliyor...")
-        bot_app.run_polling(drop_pending_updates=True)
+    bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    bot_app.add_handler(CommandHandler("start", start_cmd))
+    bot_app.add_handler(CommandHandler("radar", radar_cmd))
+    bot_app.add_handler(CommandHandler("baslat", baslat_cmd))
+    bot_app.add_handler(CommandHandler("durdur", durdur_cmd))
+    bot_app.add_handler(CommandHandler("durum", durum_cmd))
+
+    async with bot_app:
+        await bot_app.start()
+        await bot_app.updater.start_polling(drop_pending_updates=True)
+        logger.info("Telegram polling aktif!")
+        # Uygulamanin kapanmasini engelle
+        while True:
+            await asyncio.sleep(3600)
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot sonlandirildi.")
