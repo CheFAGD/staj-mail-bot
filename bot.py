@@ -180,7 +180,7 @@ E-Mail: durmaz40ali@gmail.com"""
     }
 }
 
-# --- BREVO HTTP API MAİL GÖNDERME ---
+# --- BREVO HTTP API MAİL GÖNDERME (BCC KOPYALI) ---
 def mail_at_brevo(alici_mail, sirket, ulke):
     dil = "DE" if str(ulke).upper() == "DE" else "NL"
     ayar = TEMPLATES[dil]
@@ -202,6 +202,7 @@ def mail_at_brevo(alici_mail, sirket, ulke):
     payload = {
         "sender": {"name": "Ali Görkem Durmaz", "email": GMAIL_USER},
         "to": [{"email": alici_mail, "name": sirket}],
+        "bcc": [{"email": GMAIL_USER, "name": "Kopya - Ali Görkem Durmaz"}],  # KENDİNE BİR KOPYA ATAR
         "replyTo": {"email": GMAIL_USER, "name": "Ali Görkem Durmaz"},
         "subject": konu,
         "textContent": metin,
@@ -360,7 +361,7 @@ def mail_gonderim_gorevi(chat_id, loop, bot_app):
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     mesaj = (
-        f"👋 Selam Ali! Sistem aktif ve tam güç hazır.\n"
+        f"👋 Selam Ali! Sistem aktif ve hazır.\n"
         f"Senin Chat ID: `{chat_id}`\n\n"
         "Komutlar:\n"
         "🔎 /radar <sehir> - İşletme ve mailleri listeye aktarır\n"
