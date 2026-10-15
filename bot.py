@@ -30,6 +30,49 @@ CV_FILE = "Ali_Gorkem_Durmaz_CV.pdf"
 CALISIYOR = False
 RADAR_CALISIYOR = False
 
+# ================= KALICI GÖNDERİLENLER LİSTESİ =================
+# Render sıfırlansa bile bu maillere ASLA ikinci kez mail gitmez!
+PERMANENT_SENT_EMAILS = {
+    # Amsterdam
+    "amsterdam.info@waldorfastoria.com",
+    "info@conservatoriumhotel.com",
+    "hotel@deleurope.com",
+    "h2783@sofitel.com",
+    "cielbleu@okura.nl",
+    "info@rijksrestaurant.nl",
+    "spectrum.amsterdam@waldorfastoria.com",
+    "wamsterdam@whotels.com",
+    "hotel@dylanamsterdam.com",
+    "career@okura.nl",
+    "hr.wamsterdam@whotels.com",
+    "recruitment@conservatoriumhotel.com",
+    "jobs@deleurope.com",
+    "info@restaurantdekas.nl",
+    "jobs.amsterdam@pestana.com",
+    "h2783-hr@sofitel.com",
+    "info@restaurantfred.nl",
+    "info@hotelnewyork.nl",
+    "info@theslaakrotterdam.nl",
+    "info@fgrestaurant.nl",
+    "info@parkheuvel.nl",
+    "info@mainporthotel.com",
+    # Berlin
+    "adlon@kempinski.com",
+    "berlin@ritzcarlton.com",
+    "berlin.info@waldorfastoria.com",
+    "office@tim-raue.com",
+    "info@rutz-restaurant.de",
+    "welcome@facil.de",
+    "berlin.grand@hyatt.com",
+    "stay@so-berlin-das-stue.com",
+    "reservations.derome@roccofortehotels.com",
+    # Köln
+    "info@excelsior-hotel-ernst.de",
+    "cologne.regency@hyatt.com",
+    "taku@excelsior-hotel-ernst.de",
+    "contact@lemoissonnier.de"
+}
+
 def slugify(text: str) -> str:
     """Telegram komutlarına uygun hale getirir: sadece a-z0-9_"""
     text = text.lower()
@@ -77,7 +120,8 @@ VERIFIED_DATABASE = {
     "koln": [
         {"isim": "Excelsior Hotel Ernst Köln", "email": "info@excelsior-hotel-ernst.de", "ulke": "DE"},
         {"isim": "Hyatt Regency Köln", "email": "cologne.regency@hyatt.com", "ulke": "DE"},
-        {"isim": "Restaurant taku Köln", "email": "taku@excelsior-hotel-ernst.de", "ulke": "DE"}
+        {"isim": "Restaurant taku Köln", "email": "taku@excelsior-hotel-ernst.de", "ulke": "DE"},
+        {"isim": "Le Moissonnier Köln", "email": "contact@lemoissonnier.de", "ulke": "DE"}
     ],
     "dusseldorf": [
         {"isim": "Breidenbacher Hof Düsseldorf", "email": "info@breidenbacherhof.com", "ulke": "DE"},
@@ -130,7 +174,8 @@ VERIFIED_DATABASE = {
         {"isim": "RIJKS Restaurant Amsterdam", "email": "info@rijksrestaurant.nl", "ulke": "NL"},
         {"isim": "Restaurant Spectrum Amsterdam", "email": "spectrum.amsterdam@waldorfastoria.com", "ulke": "NL"},
         {"isim": "W Amsterdam Hotel", "email": "wamsterdam@whotels.com", "ulke": "NL"},
-        {"isim": "The Dylan Amsterdam", "email": "hotel@dylanamsterdam.com", "ulke": "NL"}
+        {"isim": "The Dylan Amsterdam", "email": "hotel@dylanamsterdam.com", "ulke": "NL"},
+        {"isim": "Restaurant De Kas", "email": "info@restaurantdekas.nl", "ulke": "NL"}
     ],
     "rotterdam": [
         {"isim": "Hotel New York Rotterdam", "email": "info@hotelnewyork.nl", "ulke": "NL"},
@@ -765,8 +810,8 @@ def run_web():
     server.run(host="0.0.0.0", port=port, use_reloader=False)
 
 def get_sent_history():
-    """Daha önce mail atılmış adresleri hafıza dosyasından çeker"""
-    sent = set()
+    """Hem kod içi kalıcı kümeden hem de sunucu hafızasından gönderilenleri çeker"""
+    sent = set(PERMANENT_SENT_EMAILS)
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             for line in f:
@@ -778,8 +823,10 @@ def get_sent_history():
 def add_to_sent_history(email):
     """Gönderilen maili kalıcı hafıza dosyasına yazar"""
     try:
+        clean = email.lower().strip()
+        PERMANENT_SENT_EMAILS.add(clean)
         with open(HISTORY_FILE, "a", encoding="utf-8") as f:
-            f.write(email.lower().strip() + "\n")
+            f.write(clean + "\n")
     except Exception as e:
         logger.error(f"Hafıza dosyasına yazılamadı: {e}")
 
@@ -902,6 +949,7 @@ def radar_gorevi(sehir_sorgu, chat_id, loop, bot_app):
         sirket = item["isim"]
         item_ulke = item["ulke"]
 
+        # Daha önce gönderildiyse doğrudan Gönderildi işaretle!
         baslangic_durum = "Gonderildi" if m_clean in sent_history else "Bekliyor"
 
         if m_clean not in mevcut_mailler:
@@ -920,17 +968,17 @@ def radar_gorevi(sehir_sorgu, chat_id, loop, bot_app):
             asyncio.run_coroutine_threadsafe(
                 bot_app.bot.send_message(
                     chat_id=chat_id,
-                    text=f"🎯 Yeni Hedef Bulundu!\nİşletme: {sirket}\nMail: {m_clean}\nÜlke: {item_ulke}{durum_notu}"
+                    text=f"🎯 Hedef Algılandı!\nİşletme: {sirket}\nMail: {m_clean}\nÜlke: {item_ulke}{durum_notu}"
                 ),
                 loop
             )
-            time.sleep(0.8)
+            time.sleep(0.5)
 
     RADAR_CALISIYOR = False
     asyncio.run_coroutine_threadsafe(
         bot_app.bot.send_message(
             chat_id=chat_id,
-            text=f"🏁 Radar tamamlandı! {sehir_sorgu.capitalize()} için {bulunan_sayisi} yeni işletme listeye eklendi."
+            text=f"🏁 Radar tamamlandı! {sehir_sorgu.capitalize()} için {bulunan_sayisi} işletme listeye işlendi."
         ),
         loop
     )
@@ -950,6 +998,7 @@ def mail_gonderim_gorevi(chat_id, loop, bot_app):
         df["Durum"] = "Bekliyor"
 
     sent_history = get_sent_history()
+    # Hafızadaki mailleri doğrudan 'Gonderildi'ye çek
     for idx, row in df.iterrows():
         m = str(row["Email"]).lower().strip()
         if m in sent_history and str(row["Durum"]).strip() != "Gonderildi":
@@ -959,7 +1008,7 @@ def mail_gonderim_gorevi(chat_id, loop, bot_app):
     bekleyenler = df[df["Durum"] != "Gonderildi"]
     if len(bekleyenler) == 0:
         asyncio.run_coroutine_threadsafe(
-            bot_app.bot.send_message(chat_id=chat_id, text="ℹ️ Listede bekleyen işletme kalmadı! Yeni şehirler taratabilirsiniz."),
+            bot_app.bot.send_message(chat_id=chat_id, text="ℹ️ Listede bekleyen yeni işletme yok! Şehir ekleyebilirsiniz."),
             loop
         )
         CALISIYOR = False
@@ -1050,7 +1099,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🛑 /durdur - Gönderimi durdurur\n"
         "📊 /durum - Liste durumunu gösterir\n"
         "💾 /csv_indir - Mevcut listeyi telefonuna indirir\n"
-        "📥 *CSV Geri Yükleme:* Telefonundaki güncel .csv dosyasını buraya mesaj olarak atman yeterlidir!"
+        "📥 *CSV Yükleme:* .csv dosyasını buraya atarsan listeyi anında günceller!"
     )
     await update.message.reply_text(mesaj, parse_mode="Markdown")
 
@@ -1082,9 +1131,9 @@ async def dosya_yukle_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         toplam = len(df)
         gonderilen_sayisi = len(gonderilenler)
         await update.message.reply_text(
-            f"✅ `restoranlar.csv` başarıyla yüklendi ve güncellendi!\n"
+            f"✅ `restoranlar.csv` başarıyla yüklendi!\n"
             f"Toplam Kayıt: {toplam}\n"
-            f"Gönderildi Olarak İşaretli: {gonderilen_sayisi}\n"
+            f"Gönderildi: {gonderilen_sayisi}\n"
             f"Kalan: {toplam - gonderilen_sayisi}"
         )
     except Exception as e:
@@ -1276,6 +1325,7 @@ async def durum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         df["Durum"] = "Bekliyor"
 
     sent_history = get_sent_history()
+    # Hafızadakileri ekranda doğru göster
     gonderilen = len(df[(df["Durum"] == "Gonderildi") | (df["Email"].astype(str).str.lower().isin(sent_history))])
     toplam = len(df)
     kalan = max(0, toplam - gonderilen)
@@ -1329,7 +1379,6 @@ async def main():
 
     bot_app.add_handler(CommandHandler("radar", radar_cmd))
 
-    # ASCII temizliği yapılmış şehir komutları kaydediliyor
     kayitli_komutlar = set()
     for city_key in VERIFIED_DATABASE.keys():
         temiz_komut = slugify(f"radar_{city_key}")
