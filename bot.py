@@ -1,4 +1,5 @@
 import os
+import re
 import base64
 import time
 import random
@@ -29,6 +30,15 @@ CV_FILE = "Ali_Gorkem_Durmaz_CV.pdf"
 CALISIYOR = False
 RADAR_CALISIYOR = False
 
+def slugify(text: str) -> str:
+    """Telegram komutlarına uygun hale getirir: sadece a-z0-9_"""
+    text = text.lower()
+    text = text.replace("ü", "u").replace("ö", "o").replace("ş", "s").replace("ı", "i")
+    text = text.replace("ğ", "g").replace("ç", "c").replace("ä", "a").replace("é", "e")
+    text = text.replace("è", "e").replace("á", "a").replace("í", "i").replace("ó", "o")
+    text = re.sub(r"[^a-z0-9_]", "", text)
+    return text
+
 VERIFIED_DATABASE = {
     # ================= ALMANYA =================
     "berlin": [
@@ -58,34 +68,21 @@ VERIFIED_DATABASE = {
         {"isim": "Restaurant Atelier München", "email": "atelier@bayerischerhof.de", "ulke": "DE"},
         {"isim": "Rosewood Munich", "email": "munich@rosewoodhotels.com", "ulke": "DE"}
     ],
-    "münchen": [
-        {"isim": "Hotel Bayerischer Hof Munich", "email": "info@bayerischerhof.de", "ulke": "DE"},
-        {"isim": "Hotel Vier Jahreszeiten Kempinski München", "email": "reservations.vierjahreszeiten@kempinski.com", "ulke": "DE"},
-        {"isim": "Restaurant Tantris München", "email": "kontakt@tantris.de", "ulke": "DE"}
-    ],
     "hamburg": [
         {"isim": "Fairmont Hotel Vier Jahreszeiten Hamburg", "email": "hamburg@fairmont.com", "ulke": "DE"},
         {"isim": "The Fontenay Hamburg", "email": "info@thefontenay.com", "ulke": "DE"},
         {"isim": "Restaurant Haerlin Hamburg", "email": "haerlin.hamburg@fairmont.com", "ulke": "DE"},
         {"isim": "The Table Kevin Fehling", "email": "info@the-table-hamburg.de", "ulke": "DE"}
     ],
-    "cologne": [
+    "koln": [
         {"isim": "Excelsior Hotel Ernst Köln", "email": "info@excelsior-hotel-ernst.de", "ulke": "DE"},
         {"isim": "Hyatt Regency Köln", "email": "cologne.regency@hyatt.com", "ulke": "DE"},
         {"isim": "Restaurant taku Köln", "email": "taku@excelsior-hotel-ernst.de", "ulke": "DE"}
-    ],
-    "köln": [
-        {"isim": "Excelsior Hotel Ernst Köln", "email": "info@excelsior-hotel-ernst.de", "ulke": "DE"},
-        {"isim": "Hyatt Regency Köln", "email": "cologne.regency@hyatt.com", "ulke": "DE"}
     ],
     "dusseldorf": [
         {"isim": "Breidenbacher Hof Düsseldorf", "email": "info@breidenbacherhof.com", "ulke": "DE"},
         {"isim": "Hyatt Regency Düsseldorf", "email": "dusseldorf.regency@hyatt.com", "ulke": "DE"},
         {"isim": "Steigenberger Icon Parkhotel Düsseldorf", "email": "parkhotel-duesseldorf@steigenberger.com", "ulke": "DE"}
-    ],
-    "düsseldorf": [
-        {"isim": "Breidenbacher Hof Düsseldorf", "email": "info@breidenbacherhof.com", "ulke": "DE"},
-        {"isim": "Hyatt Regency Düsseldorf", "email": "dusseldorf.regency@hyatt.com", "ulke": "DE"}
     ],
     "stuttgart": [
         {"isim": "Steigenberger Graf Zeppelin Stuttgart", "email": "stuttgart@steigenberger.com", "ulke": "DE"},
@@ -106,10 +103,6 @@ VERIFIED_DATABASE = {
         {"isim": "Kastens Hotel Luisenhof Hannover", "email": "info@kastens-luisenhof.de", "ulke": "DE"},
         {"isim": "Restaurant Jante Hannover", "email": "info@jante-restaurant.de", "ulke": "DE"}
     ],
-    "nürnberg": [
-        {"isim": "Sheraton Carlton Hotel Nuernberg", "email": "carltonnuernberg@sheraton.com", "ulke": "DE"},
-        {"isim": "Restaurant Essigbrätlein Nürnberg", "email": "restaurant@essigbraetlein.de", "ulke": "DE"}
-    ],
     "nurnberg": [
         {"isim": "Sheraton Carlton Hotel Nuernberg", "email": "carltonnuernberg@sheraton.com", "ulke": "DE"},
         {"isim": "Restaurant Essigbrätlein Nürnberg", "email": "restaurant@essigbraetlein.de", "ulke": "DE"}
@@ -125,9 +118,6 @@ VERIFIED_DATABASE = {
     "badenbaden": [
         {"isim": "Brenners Park-Hotel & Spa Oetker Collection", "email": "information.brenners@oetkercollection.com", "ulke": "DE"},
         {"isim": "Roomers Baden-Baden", "email": "info@roomers-badenbaden.com", "ulke": "DE"}
-    ],
-    "baden-baden": [
-        {"isim": "Brenners Park-Hotel & Spa Oetker Collection", "email": "information.brenners@oetkercollection.com", "ulke": "DE"}
     ],
 
     # ================= HOLLANDA =================
@@ -160,10 +150,6 @@ VERIFIED_DATABASE = {
         {"isim": "Grand Hotel Amrâth Kurhaus The Hague", "email": "info@amrathkurhaus.com", "ulke": "NL"},
         {"isim": "Restaurant Calla's The Hague", "email": "info@restaurantcallas.nl", "ulke": "NL"}
     ],
-    "den haag": [
-        {"isim": "Hotel Des Indes The Hague", "email": "resintouch@hoteldesindes.nl", "ulke": "NL"},
-        {"isim": "Restaurant Calla's The Hague", "email": "info@restaurantcallas.nl", "ulke": "NL"}
-    ],
     "eindhoven": [
         {"isim": "Kazerne Design Hotel Eindhoven", "email": "reservations@kazerne.com", "ulke": "NL"},
         {"isim": "Restaurant Zarzo Eindhoven", "email": "info@zarzo.nl", "ulke": "NL"},
@@ -184,11 +170,6 @@ VERIFIED_DATABASE = {
         {"isim": "Hotel Hassler Roma", "email": "booking@hotelhassler.it", "ulke": "IT"},
         {"isim": "Il Pagliaccio Rome", "email": "info@ristoranteilpagliaccio.com", "ulke": "IT"}
     ],
-    "rome": [
-        {"isim": "Hotel Eden Rome Dorchester", "email": "reservations.her@dorchestercollection.com", "ulke": "IT"},
-        {"isim": "The St. Regis Rome", "email": "stregisrome@stregis.com", "ulke": "IT"},
-        {"isim": "Hotel Hassler Roma", "email": "booking@hotelhassler.it", "ulke": "IT"}
-    ],
     "milano": [
         {"isim": "Bulgari Hotel Milano", "email": "milano@bulgarihotels.com", "ulke": "IT"},
         {"isim": "Four Seasons Hotel Milano", "email": "milano@fourseasons.com", "ulke": "IT"},
@@ -196,28 +177,16 @@ VERIFIED_DATABASE = {
         {"isim": "Armani Hotel Milano", "email": "milan@armanihotels.com", "ulke": "IT"},
         {"isim": "Enrico Bartolini al Mudec", "email": "info@enricobartolini.net", "ulke": "IT"}
     ],
-    "milan": [
-        {"isim": "Bulgari Hotel Milano", "email": "milano@bulgarihotels.com", "ulke": "IT"},
-        {"isim": "Four Seasons Hotel Milano", "email": "milano@fourseasons.com", "ulke": "IT"}
-    ],
     "floransa": [
         {"isim": "Four Seasons Hotel Firenze", "email": "flo.reservations@fourseasons.com", "ulke": "IT"},
         {"isim": "The St. Regis Florence", "email": "streflorence@stregis.com", "ulke": "IT"},
         {"isim": "Enoteca Pinchiorri Firenze", "email": "ristorante@enotecapinchiorri.com", "ulke": "IT"}
-    ],
-    "florence": [
-        {"isim": "Four Seasons Hotel Firenze", "email": "flo.reservations@fourseasons.com", "ulke": "IT"},
-        {"isim": "The St. Regis Florence", "email": "streflorence@stregis.com", "ulke": "IT"}
     ],
     "venedik": [
         {"isim": "The Gritti Palace Venice", "email": "grittipalace@luxurycollection.com", "ulke": "IT"},
         {"isim": "Hotel Danieli Venice", "email": "danieli@fourseasons.com", "ulke": "IT"},
         {"isim": "Aman Venice", "email": "amanvenice.res@aman.com", "ulke": "IT"},
         {"isim": "Ristorante Quadri Venice", "email": "info@alajmo.it", "ulke": "IT"}
-    ],
-    "venice": [
-        {"isim": "The Gritti Palace Venice", "email": "grittipalace@luxurycollection.com", "ulke": "IT"},
-        {"isim": "Aman Venice", "email": "amanvenice.res@aman.com", "ulke": "IT"}
     ],
     "napoli": [
         {"isim": "Grand Hotel Vesuvio Napoli", "email": "info@vesuvio.it", "ulke": "IT"},
@@ -278,10 +247,6 @@ VERIFIED_DATABASE = {
         {"isim": "Le Petit Nice Passedat", "email": "contact@passedat.fr", "ulke": "FR"},
         {"isim": "Sofitel Marseille Vieux Port", "email": "h0542@sofitel.com", "ulke": "FR"}
     ],
-    "marseille": [
-        {"isim": "InterContinental Marseille Hotel Dieu", "email": "marseille@ihg.com", "ulke": "FR"},
-        {"isim": "Le Petit Nice Passedat", "email": "contact@passedat.fr", "ulke": "FR"}
-    ],
     "strasbourg": [
         {"isim": "Hotel Regent Petite France Strasbourg", "email": "info@regent-petite-france.com", "ulke": "FR"},
         {"isim": "Restaurant Au Crocodile Strasbourg", "email": "contact@au-crocodile.com", "ulke": "FR"},
@@ -317,11 +282,6 @@ VERIFIED_DATABASE = {
         {"isim": "Restaurant Lasarte Barcelona", "email": "info@restaurantlasarte.com", "ulke": "ES"},
         {"isim": "ABaC Restaurant Barcelona", "email": "hotel@abacbarcelona.com", "ulke": "ES"}
     ],
-    "barselona": [
-        {"isim": "Hotel Arts Barcelona Ritz-Carlton", "email": "artsreservations@ritzcarlton.com", "ulke": "ES"},
-        {"isim": "Mandarin Oriental Barcelona", "email": "mobcn-info@mohg.com", "ulke": "ES"},
-        {"isim": "Restaurant Lasarte Barcelona", "email": "info@restaurantlasarte.com", "ulke": "ES"}
-    ],
     "valencia": [
         {"isim": "The Westin Valencia", "email": "reservas@westinvalencia.com", "ulke": "ES"},
         {"isim": "Hotel Las Arenas Balneario Resort", "email": "reservas@hotelvalencialasarenas.com", "ulke": "ES"},
@@ -332,19 +292,10 @@ VERIFIED_DATABASE = {
         {"isim": "Hotel Colon Gran Melia Seville", "email": "gran.melia.colon@melia.com", "ulke": "ES"},
         {"isim": "Restaurant Abantal Sevilla", "email": "abantal@abantalrestaurante.es", "ulke": "ES"}
     ],
-    "seville": [
-        {"isim": "Hotel Alfonso XIII Luxury Collection Seville", "email": "alfonsoxiii@luxurycollection.com", "ulke": "ES"},
-        {"isim": "Restaurant Abantal Sevilla", "email": "abantal@abantalrestaurante.es", "ulke": "ES"}
-    ],
     "sansebastian": [
         {"isim": "Hotel Maria Cristina Luxury Collection", "email": "mariacristina@luxurycollection.com", "ulke": "ES"},
         {"isim": "Restaurant Arzak San Sebastian", "email": "arzak@arzak.es", "ulke": "ES"},
         {"isim": "Akelarre Restaurant & Hotel Pedro Subijana", "email": "restaurante@akelarre.net", "ulke": "ES"},
-        {"isim": "Martin Berasategui Restaurant", "email": "restaurante@martinberasategui.com", "ulke": "ES"}
-    ],
-    "san sebastian": [
-        {"isim": "Hotel Maria Cristina Luxury Collection", "email": "mariacristina@luxurycollection.com", "ulke": "ES"},
-        {"isim": "Restaurant Arzak San Sebastian", "email": "arzak@arzak.es", "ulke": "ES"},
         {"isim": "Martin Berasategui Restaurant", "email": "restaurante@martinberasategui.com", "ulke": "ES"}
     ],
     "bilbao": [
@@ -365,10 +316,6 @@ VERIFIED_DATABASE = {
         {"isim": "Alma Restaurant Lisbon", "email": "alma@almarestaurante.pt", "ulke": "PT"},
         {"isim": "The Ivens Autograph Collection Lisbon", "email": "reservations@theivenshotel.com", "ulke": "PT"}
     ],
-    "lisbon": [
-        {"isim": "Four Seasons Hotel Ritz Lisbon", "email": "lisbon@fourseasons.com", "ulke": "PT"},
-        {"isim": "Belcanto by José Avillez", "email": "belcanto@joseavillez.pt", "ulke": "PT"}
-    ],
     "porto": [
         {"isim": "The Yeatman Hotel Porto", "email": "reservations@theyeatman.com", "ulke": "PT"},
         {"isim": "InterContinental Porto Palacio das Cardosas", "email": "porto@ihg.com", "ulke": "PT"},
@@ -379,10 +326,6 @@ VERIFIED_DATABASE = {
         {"isim": "Vila Vita Parc Resort & Spa Algarve", "email": "reservas@vilavitaparc.com", "ulke": "PT"},
         {"isim": "Ocean Restaurant Algarve", "email": "info@restauranteocean.com", "ulke": "PT"},
         {"isim": "Pine Cliffs Hotel Luxury Collection Algarve", "email": "pinecliffs.reservations@luxurycollection.com", "ulke": "PT"}
-    ],
-    "algarve": [
-        {"isim": "Vila Vita Parc Resort & Spa Algarve", "email": "reservas@vilavitaparc.com", "ulke": "PT"},
-        {"isim": "Ocean Restaurant Algarve", "email": "info@restauranteocean.com", "ulke": "PT"}
     ],
     "funchal": [
         {"isim": "Belmond Reid's Palace Madeira", "email": "reservations.rdp@belmond.com", "ulke": "PT"},
@@ -395,16 +338,8 @@ VERIFIED_DATABASE = {
         {"isim": "Baur au Lac Zurich", "email": "info@bauraulac.ch", "ulke": "CH"},
         {"isim": "Park Hyatt Zurich", "email": "zurich.park@hyatt.com", "ulke": "CH"}
     ],
-    "zürich": [
-        {"isim": "The Dolder Grand Zurich", "email": "info@thedoldergrand.com", "ulke": "CH"},
-        {"isim": "Baur au Lac Zurich", "email": "info@bauraulac.ch", "ulke": "CH"}
-    ],
     "geneva": [
         {"isim": "The Ritz-Carlton Hotel de la Paix Geneva", "email": "geneva@ritzcarlton.com", "ulke": "CH"},
-        {"isim": "Four Seasons Hotel des Bergues Geneva", "email": "geneva.reservations@fourseasons.com", "ulke": "CH"},
-        {"isim": "Beau-Rivage Geneve", "email": "info@beau-rivage.ch", "ulke": "CH"}
-    ],
-    "cenevre": [
         {"isim": "Four Seasons Hotel des Bergues Geneva", "email": "geneva.reservations@fourseasons.com", "ulke": "CH"},
         {"isim": "Beau-Rivage Geneve", "email": "info@beau-rivage.ch", "ulke": "CH"}
     ],
@@ -420,9 +355,6 @@ VERIFIED_DATABASE = {
         {"isim": "Mandarin Oriental Palace Luzern", "email": "molzn-reservations@mohg.com", "ulke": "CH"},
         {"isim": "Bürgenstock Hotel & Alpine Spa", "email": "information@burgenstockresort.com", "ulke": "CH"}
     ],
-    "luzern": [
-        {"isim": "Mandarin Oriental Palace Luzern", "email": "molzn-reservations@mohg.com", "ulke": "CH"}
-    ],
     "stmoritz": [
         {"isim": "Badrutt's Palace Hotel St. Moritz", "email": "reservations@badruttspalace.com", "ulke": "CH"},
         {"isim": "Kulm Hotel St. Moritz", "email": "reservations@kulm.com", "ulke": "CH"}
@@ -432,14 +364,6 @@ VERIFIED_DATABASE = {
         {"isim": "The Ritz-Carlton Vienna", "email": "vienna.info@ritzcarlton.com", "ulke": "AT"},
         {"isim": "Restaurant Steirereck Vienna", "email": "wien@steirereck.at", "ulke": "AT"},
         {"isim": "Park Hyatt Vienna", "email": "vienna.park@hyatt.com", "ulke": "AT"}
-    ],
-    "viyana": [
-        {"isim": "Hotel Sacher Wien", "email": "wien@sacher.com", "ulke": "AT"},
-        {"isim": "Restaurant Steirereck Vienna", "email": "wien@steirereck.at", "ulke": "AT"}
-    ],
-    "wien": [
-        {"isim": "Hotel Sacher Wien", "email": "wien@sacher.com", "ulke": "AT"},
-        {"isim": "Restaurant Steirereck Vienna", "email": "wien@steirereck.at", "ulke": "AT"}
     ],
     "salzburg": [
         {"isim": "Hotel Sacher Salzburg", "email": "salzburg@sacher.com", "ulke": "AT"},
@@ -463,11 +387,6 @@ VERIFIED_DATABASE = {
         {"isim": "The Dorchester London", "email": "reservations.tdl@dorchestercollection.com", "ulke": "GB"},
         {"isim": "Restaurant Gordon Ramsay London", "email": "royalhospitalroad@gordonramsay.com", "ulke": "GB"},
         {"isim": "Core by Clare Smyth London", "email": "info@corebyclaresmyth.com", "ulke": "GB"}
-    ],
-    "londra": [
-        {"isim": "The Savoy London", "email": "savoy@fairmont.com", "ulke": "GB"},
-        {"isim": "The Ritz London", "email": "enquire@theritzlondon.com", "ulke": "GB"},
-        {"isim": "Restaurant Gordon Ramsay London", "email": "royalhospitalroad@gordonramsay.com", "ulke": "GB"}
     ],
     "edinburgh": [
         {"isim": "The Balmoral Rocco Forte Edinburgh", "email": "reservations.balmoral@roccofortehotels.com", "ulke": "GB"},
@@ -512,10 +431,6 @@ VERIFIED_DATABASE = {
         {"isim": "Comme Chez Soi Brussels", "email": "info@commechezsoi.be", "ulke": "BE"},
         {"isim": "The Hotel Brussels", "email": "book@thehotel.be", "ulke": "BE"}
     ],
-    "brüksel": [
-        {"isim": "Hotel Amigo Rocco Forte Brussels", "email": "reservations.amigo@roccofortehotels.com", "ulke": "BE"},
-        {"isim": "Steigenberger Wiltcher's Brussels", "email": "brussels@steigenberger.com", "ulke": "BE"}
-    ],
     "antwerp": [
         {"isim": "Botanic Sanctuary Antwerp", "email": "info@botanicantwerp.com", "ulke": "BE"},
         {"isim": "The Jane Antwerp", "email": "contact@thejaneantwerp.com", "ulke": "BE"}
@@ -529,7 +444,7 @@ VERIFIED_DATABASE = {
         {"isim": "Restaurant De Karmeliet Bruges", "email": "info@dekarmeliet.be", "ulke": "BE"}
     ],
 
-    # ================= İSKANDİNAVYA (DANİMARKA, İSVEÇ, NORVEÇ, FİNLANDİYA) =================
+    # ================= İSKANDİNAVYA =================
     "kopenhag": [
         {"isim": "Hotel d'Angleterre Copenhagen", "email": "info@dangleterre.com", "ulke": "DK"},
         {"isim": "Geranium Restaurant Copenhagen", "email": "info@geranium.dk", "ulke": "DK"},
@@ -537,11 +452,6 @@ VERIFIED_DATABASE = {
         {"isim": "Alchemist Copenhagen", "email": "restaurant@alchemist.dk", "ulke": "DK"},
         {"isim": "Villa Copenhagen", "email": "info@villacph.com", "ulke": "DK"},
         {"isim": "Nimb Hotel Copenhagen", "email": "contact@nimb.dk", "ulke": "DK"}
-    ],
-    "copenhagen": [
-        {"isim": "Hotel d'Angleterre Copenhagen", "email": "info@dangleterre.com", "ulke": "DK"},
-        {"isim": "Geranium Restaurant Copenhagen", "email": "info@geranium.dk", "ulke": "DK"},
-        {"isim": "Alchemist Copenhagen", "email": "restaurant@alchemist.dk", "ulke": "DK"}
     ],
     "aarhus": [
         {"isim": "Radisson Blu Scandinavia Hotel Aarhus", "email": "info.aarhus@radissonblu.com", "ulke": "DK"},
@@ -599,17 +509,13 @@ VERIFIED_DATABASE = {
         {"isim": "Restaurant Ravinteli Bertha Tampere", "email": "info@bertha.fi", "ulke": "FI"}
     ],
 
-    # ================= ORTA VE DOĞU AVRUPA (ÇEKYA, MACARİSTAN, POLONYA, YUNANİSTAN) =================
+    # ================= ORTA VE DOĞU AVRUPA =================
     "prag": [
         {"isim": "Four Seasons Hotel Prague", "email": "prague@fourseasons.com", "ulke": "CZ"},
         {"isim": "The Grand Mark Prague", "email": "info@grandmark.cz", "ulke": "CZ"},
         {"isim": "Field Restaurant Prague", "email": "info@fieldrestaurant.cz", "ulke": "CZ"},
         {"isim": "La Degustation Boheme Bourgeoise", "email": "boheme@degustation.cz", "ulke": "CZ"},
         {"isim": "Augustine a Luxury Collection Hotel", "email": "augustine@luxurycollection.com", "ulke": "CZ"}
-    ],
-    "prague": [
-        {"isim": "Four Seasons Hotel Prague", "email": "prague@fourseasons.com", "ulke": "CZ"},
-        {"isim": "Field Restaurant Prague", "email": "info@fieldrestaurant.cz", "ulke": "CZ"}
     ],
     "brno": [
         {"isim": "Barceló Brno Palace", "email": "brnopalace@barcelo.com", "ulke": "CZ"},
@@ -622,10 +528,6 @@ VERIFIED_DATABASE = {
         {"isim": "Borkonyha Winekitchen Budapest", "email": "borkonyha@borkonyha.hu", "ulke": "HU"},
         {"isim": "Matild Palace a Luxury Collection Hotel", "email": "info@matildpalace.com", "ulke": "HU"}
     ],
-    "budapest": [
-        {"isim": "Four Seasons Hotel Gresham Palace Budapest", "email": "budapest.reservations@fourseasons.com", "ulke": "HU"},
-        {"isim": "Costes Restaurant Budapest", "email": "reservation@costes.hu", "ulke": "HU"}
-    ],
     "debrecen": [
         {"isim": "Hotel Divinus Debrecen", "email": "info@hoteldivinus.hu", "ulke": "HU"},
         {"isim": "IKON Restaurant Debrecen", "email": "ikon@ikonrestaurant.hu", "ulke": "HU"}
@@ -635,10 +537,6 @@ VERIFIED_DATABASE = {
         {"isim": "Raffles Europejski Warsaw", "email": "warsaw@raffles.com", "ulke": "PL"},
         {"isim": "Nuta Restaurant Warsaw", "email": "restauracja@nuta.com.pl", "ulke": "PL"},
         {"isim": "InterContinental Warsaw", "email": "warsaw@ihg.com", "ulke": "PL"}
-    ],
-    "warsaw": [
-        {"isim": "Hotel Bristol Warsaw", "email": "bristol@luxurycollection.com", "ulke": "PL"},
-        {"isim": "Raffles Europejski Warsaw", "email": "warsaw@raffles.com", "ulke": "PL"}
     ],
     "krakow": [
         {"isim": "Hotel Copernicus Krakow", "email": "copernicus@hotel.com.pl", "ulke": "PL"},
@@ -660,11 +558,6 @@ VERIFIED_DATABASE = {
         {"isim": "King George Luxury Collection Athens", "email": "kinggeorge.reservation@luxurycollection.com", "ulke": "GR"},
         {"isim": "Botrini's Restaurant Athens", "email": "info@botrinis.com", "ulke": "GR"}
     ],
-    "athens": [
-        {"isim": "Hotel Grande Bretagne Athens", "email": "grandebretagne.reservation@luxurycollection.com", "ulke": "GR"},
-        {"isim": "Four Seasons Astir Palace Hotel Athens", "email": "reservations.athens@fourseasons.com", "ulke": "GR"},
-        {"isim": "Spondi Restaurant Athens", "email": "info@spondi.gr", "ulke": "GR"}
-    ],
     "selanik": [
         {"isim": "The Met Hotel Thessaloniki", "email": "themethotel@chandris.gr", "ulke": "GR"},
         {"isim": "Daios Luxury Living Thessaloniki", "email": "info@daioshotels.com", "ulke": "GR"},
@@ -684,7 +577,7 @@ VERIFIED_DATABASE = {
         {"isim": "Elounda Mare Hotel Relais & Chateaux", "email": "mare@elounda.sa", "ulke": "GR"}
     ],
 
-    # ================= AMERİKA BİRLEŞİK DEVLETLERİ (ABD) =================
+    # ================= AMERİKA BİRLEŞİK DEVLETLERİ =================
     "newyork": [
         {"isim": "The Plaza Hotel New York", "email": "theplaza@fairmont.com", "ulke": "US"},
         {"isim": "The Mark Hotel New York", "email": "info@themarkhotel.com", "ulke": "US"},
@@ -772,7 +665,7 @@ VERIFIED_DATABASE = {
     ],
     "sandiego": [
         {"isim": "The US Grant Luxury Collection San Diego", "email": "info@theusgrant.com", "ulke": "US"},
-        {"isim": "Addison Restaurant San Diego (3 Michelin Stars)", "email": "info@addisondelmar.com", "ulke": "US"}
+        {"isim": "Addison Restaurant San Diego", "email": "info@addisondelmar.com", "ulke": "US"}
     ],
     "denver": [
         {"isim": "The Brown Palace Hotel Denver", "email": "guestrelations@brownpalace.com", "ulke": "US"},
@@ -805,7 +698,7 @@ COUNTRY_DIRECTORIES = {
         "denver", "neworleans", "orlando", "honolulu", "aspen"
     ],
     "almanya": [
-        "berlin", "munich", "frankfurt", "hamburg", "cologne",
+        "berlin", "munich", "frankfurt", "hamburg", "koln",
         "dusseldorf", "stuttgart", "dresden", "leipzig", "hannover",
         "nurnberg", "bonn", "heidelberg", "badenbaden"
     ],
@@ -825,7 +718,7 @@ COUNTRY_DIRECTORIES = {
         "sansebastian", "bilbao", "malaga"
     ],
     "portekiz": [
-        "lizbon", "porto", "faro", "algarve", "funchal"
+        "lizbon", "porto", "faro", "funchal"
     ],
     "isvicre": [
         "zurich", "geneva", "basel", "bern", "lucerne", "stmoritz"
@@ -965,12 +858,12 @@ def radar_gorevi(sehir_sorgu, chat_id, loop, bot_app):
     global RADAR_CALISIYOR
     RADAR_CALISIYOR = True
 
-    sehir_anahtar = sehir_sorgu.lower().replace(" ", "").replace("-", "").strip()
+    sehir_anahtar = slugify(sehir_sorgu)
     hedefler = VERIFIED_DATABASE.get(sehir_anahtar, [])
 
     if not hedefler:
         for k, v in VERIFIED_DATABASE.items():
-            if k.replace(" ", "").replace("-", "") == sehir_anahtar:
+            if slugify(k) == sehir_anahtar:
                 hedefler = v
                 break
 
@@ -1009,7 +902,6 @@ def radar_gorevi(sehir_sorgu, chat_id, loop, bot_app):
         sirket = item["isim"]
         item_ulke = item["ulke"]
 
-        # Eğer daha önce gönderilmişse durumu otomatik Gonderildi işaretle
         baslangic_durum = "Gonderildi" if m_clean in sent_history else "Bekliyor"
 
         if m_clean not in mevcut_mailler:
@@ -1057,7 +949,6 @@ def mail_gonderim_gorevi(chat_id, loop, bot_app):
     if "Durum" not in df.columns:
         df["Durum"] = "Bekliyor"
 
-    # Önceden gonderilen_mailler.txt dosyasında kayıtlı olanları senkronize et
     sent_history = get_sent_history()
     for idx, row in df.iterrows():
         m = str(row["Email"]).lower().strip()
@@ -1084,7 +975,6 @@ def mail_gonderim_gorevi(chat_id, loop, bot_app):
         sirket = str(row["Isim"]).strip()
         ulke = str(row.get("Ulke", "US")).strip()
 
-        # Ekstra emniyet kilidi: Daha önce gönderildiyse pas geç
         if email.lower() in sent_history:
             df.at[idx, "Durum"] = "Gonderildi"
             df.to_csv(CSV_FILE, index=False)
@@ -1094,7 +984,6 @@ def mail_gonderim_gorevi(chat_id, loop, bot_app):
             logger.info(f"Mail iletiliyor: {sirket} ({email})")
             mail_at_brevo(email, sirket, ulke)
             
-            # Durumu hem CSV'ye hem kalıcı TXT hafızasına işle
             df.at[idx, "Durum"] = "Gonderildi"
             df.to_csv(CSV_FILE, index=False)
             add_to_sent_history(email)
@@ -1131,7 +1020,7 @@ def mail_gonderim_gorevi(chat_id, loop, bot_app):
 def olustur_sehir_komut_listesi(ulke_kodu, baslik, sehir_listesi):
     satirlar = [f"📍 *{baslik} Şehirleri* (Tek tıkla radara ekle):\n"]
     for s in sehir_listesi:
-        satirlar.append(f"/radar_{s}")
+        satirlar.append(f"/radar_{slugify(s)}")
     satirlar.append("\n💡 *İpucu:* Mavi komutun üzerine basman yeterli, otomatik eklenir!")
     return "\n".join(satirlar)
 
@@ -1151,7 +1040,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🇮🇪 /irlanda - 3 İrlanda şehri\n"
         "🇨🇭 /isvicre - 6 İsviçre şehri\n"
         "🇦🇹 /avusturya - 4 Avusturya şehri\n"
-        "🇵🇹 /portekiz - 5 Portekiz şehri\n"
+        "🇵🇹 /portekiz - 4 Portekiz şehri\n"
         "🇧🇪 /belcika - 4 Belçika şehri\n"
         "❄️ /iskandinavya - Danimarka, İsveç, Norveç, Finlandiya\n"
         "🏛 /diger - Çekya, Macaristan, Polonya, Yunanistan\n"
@@ -1166,7 +1055,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(mesaj, parse_mode="Markdown")
 
 async def csv_indir_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mevcut restoranlar.csv dosyasını kullanıcıya gönderir"""
     if not os.path.exists(CSV_FILE):
         await update.message.reply_text("⚠️ Henüz oluşturulmuş bir restoranlar.csv dosyası yok.")
         return
@@ -1174,11 +1062,10 @@ async def csv_indir_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=f,
             filename="restoranlar.csv",
-            caption="💾 İşte sunucudaki güncel liste! Kod güncellemesi yapmadan önce bunu indirebilir, sıfırlanma olursa bu dosyayı bota geri yükleyebilirsin."
+            caption="💾 İşte sunucudaki güncel liste!"
         )
 
 async def dosya_yukle_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Kullanıcı bir CSV dosyası attığında sunucudaki restoranlar.csv'yi günceller"""
     doc = update.message.document
     if not doc or not doc.file_name.endswith(".csv"):
         return
@@ -1186,7 +1073,6 @@ async def dosya_yukle_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     file = await context.bot.get_file(doc.file_id)
     await file.download_to_drive(CSV_FILE)
     
-    # Yeni yüklenen CSV'deki 'Gonderildi' olanları da history'ye senkronize et
     try:
         df = pd.read_csv(CSV_FILE)
         gonderilenler = df[df.get("Durum") == "Gonderildi"]["Email"].dropna().tolist()
@@ -1228,7 +1114,6 @@ async def ulkeler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(mesaj, parse_mode="Markdown")
 
-# ÜLKE LİSTELEYİCİLERİ
 async def amerika_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         olustur_sehir_komut_listesi("amerika", "Amerika Birleşik Devletleri (ABD)", COUNTRY_DIRECTORIES["amerika"]),
@@ -1349,16 +1234,14 @@ async def radar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Radar şu anda işlem yapıyor, lütfen bekle.")
         return
 
-    # /radar berlin veya /radar_berlin formatı
     text = update.message.text.strip()
     if "_" in text:
-        # /radar_newyork gibi tek tık komutu
         sehir = text.split("_", 1)[1].strip()
     else:
         args = context.args
         if not args:
             await update.message.reply_text(
-                "Lütfen bir şehir belirt! Örn:\n/radar Roma\n/radar New York\n\n"
+                "Lütfen bir şehir belirt! Örn:\n/radar roma\n/radar newyork\n\n"
                 "Ya da ülke komutunu yazarak tek tıkla ekle:\n/amerika, /almanya, /italya, /fransa..."
             )
             return
@@ -1392,7 +1275,6 @@ async def durum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "Durum" not in df.columns:
         df["Durum"] = "Bekliyor"
 
-    # History ile senkronizasyon
     sent_history = get_sent_history()
     gonderilen = len(df[(df["Durum"] == "Gonderildi") | (df["Email"].astype(str).str.lower().isin(sent_history))])
     toplam = len(df)
@@ -1417,7 +1299,6 @@ async def main():
 
     bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
-    # Genel komutlar
     bot_app.add_handler(CommandHandler("start", start_cmd))
     bot_app.add_handler(CommandHandler("baslat", baslat_cmd))
     bot_app.add_handler(CommandHandler("durdur", durdur_cmd))
@@ -1426,10 +1307,8 @@ async def main():
     bot_app.add_handler(CommandHandler("diger", diger_cmd))
     bot_app.add_handler(CommandHandler("csv_indir", csv_indir_cmd))
 
-    # CSV Dosya Geri Yükleme Desteği (Kullanıcı telegramdan dosya atarsa)
     bot_app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), dosya_yukle_handler))
 
-    # Ülke komutları
     bot_app.add_handler(CommandHandler("amerika", amerika_cmd))
     bot_app.add_handler(CommandHandler("almanya", almanya_cmd))
     bot_app.add_handler(CommandHandler("hollanda", hollanda_cmd))
@@ -1448,13 +1327,15 @@ async def main():
     bot_app.add_handler(CommandHandler("polonya", polonya_cmd))
     bot_app.add_handler(CommandHandler("yunanistan", yunanistan_cmd))
 
-    # Standart radar komutu
     bot_app.add_handler(CommandHandler("radar", radar_cmd))
 
-    # Tek tıkla çalışan tüm şehir komutlarını otomatik kaydet (/radar_newyork, /radar_berlin vs.)
+    # ASCII temizliği yapılmış şehir komutları kaydediliyor
+    kayitli_komutlar = set()
     for city_key in VERIFIED_DATABASE.keys():
-        clean_handler = f"radar_{city_key.replace(' ', '').replace('-', '')}"
-        bot_app.add_handler(CommandHandler(clean_handler, radar_cmd))
+        temiz_komut = slugify(f"radar_{city_key}")
+        if temiz_komut not in kayitli_komutlar and len(temiz_komut) > 6:
+            kayitli_komutlar.add(temiz_komut)
+            bot_app.add_handler(CommandHandler(temiz_komut, radar_cmd))
 
     async with bot_app:
         await bot_app.start()
