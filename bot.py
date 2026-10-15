@@ -1,15 +1,19 @@
 import os
+import re
 import smtplib
 import time
 import random
 import threading
+from urllib.parse import urljoin, urlparse
 from email.message import EmailMessage
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# --- AYARLAR (YENİ MAİL ADRESİ) ---
+# --- AYARLAR ---
 GMAIL_USER = "durmaz40ali@gmail.com"
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASS")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -19,13 +23,19 @@ CSV_FILE = "restoranlar.csv"
 CV_FILE = "Ali_Gorkem_Durmaz_CV.pdf"
 
 CALISIYOR = False
+RADAR_CALISIYOR = False
 
-# --- WEB SUNUCUSU (UptimeRobot için) ---
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+}
+EMAIL_REGEX = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+
+# --- WEB SUNUCUSU (UptimeRobot Uyutmasın Diye) ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot aktif ve calisiyor!"
+    return "Radar ve Mail Botu Calisiyor!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -65,6 +75,99 @@ E-Mail: durmaz40ali@gmail.com"""
     }
 }
 
+# --- RADAR (İNTERNETTEN İŞLETME VE MAİL KAZIMA) ---
+def webden_mail_topla(url):
+    emails = set()
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=6)
+        if resp.status_code == 200:
+            found = re.findall(EMAIL_REGEX, resp.text)
+            for e in found:
+                if not any(ext in e.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif', '.svg', 'wix', 'sentry', 'bootstrap']):
+                    emails.add(e)
+            
+            # Alt iletisim / kariyer linklerine bak
+            sub_paths = ['/contact', '/kontakt', '/impressum', '/jobs', '/career', '/over-ons']
+            domain = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+            for path in sub_paths:
+                try:
+                    s_resp = requests.get(urljoin(domain, path), headers=HEADERS, timeout=5)
+                    s_found = re.findall(EMAIL_REGEX, s_resp.text)
+                    for e in s_found:
+                        if not any(ext in e.lower() for ext in ['.png', '.jpg', '.jpeg', '.svg']):
+                            emails.add(e)
+                except:
+                    continue
+    except:
+        pass
+    return list(emails)
+
+def duckduckgo_arama(sorgu):
+    linkler = []
+    try:
+        url = f"https://html.duckduckgo.com/html/?q={sorgu}"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        for a in soup.find_all('a', class_='result__url'):
+            href = a.get('href')
+            if href and 'http' in href:
+                linkler.append(href.strip())
+            elif href and href.startswith('//duckduckgo.com/l/?uddg='):
+                real_url = href.split('uddg=')[1].split('&')[0]
+                import urllib.parse
+                linkler.append(urllib.parse.unquote(real_url))
+    except Exception as e:
+        print(f"Arama hatasi: {e}")
+    return list(set(linkler))[:15]
+
+def radar_gorevi(sehir, ulke, bot_app):
+    global RADAR_CALISIYOR
+    RADAR_CALISIYOR = True
+    bot_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"🔍 Radar çalışıyor: {sehir} ({ulke}) için oteller ve restoranlar taranıyor...")
+
+    sorgular = [
+        f"luxury hotels in {sehir} official site",
+        f"fine dining restaurants in {sehir} official website",
+        f"boutique hotel restaurant in {sehir}"
+    ]
+
+    bulunan_sayisi = 0
+    if not os.path.exists(CSV_FILE):
+        df = pd.DataFrame(columns=["Isim", "Email", "Ulke", "Durum"])
+        df.to_csv(CSV_FILE, index=False)
+
+    df = pd.read_csv(CSV_FILE)
+    mevcut_mailler = set(df["Email"].astype(str).str.lower().tolist())
+
+    for q in sorgular:
+        siteler = duckduckgo_arama(q)
+        for site in siteler:
+            if any(cop in site for cop in ['tripadvisor', 'booking.com', 'yelp', 'expedia', 'wikipedia', 'hotels.com']):
+                continue
+            
+            domain_name = urlparse(site).netloc.replace('www.', '').split('.')[0].capitalize()
+            mailler = webden_mail_topla(site)
+            
+            for m in mailler:
+                m_clean = m.lower().strip()
+                if m_clean not in mevcut_mailler:
+                    yeni_satir = pd.DataFrame([{
+                        "Isim": f"{domain_name} Hotel/Restaurant",
+                        "Email": m_clean,
+                        "Ulke": ulke,
+                        "Durum": "Bekliyor"
+                    }])
+                    df = pd.concat([df, yeni_satir], ignore_index=True)
+                    mevcut_mailler.add(m_clean)
+                    bulunan_sayisi += 1
+                    df.to_csv(CSV_FILE, index=False)
+                    bot_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"🎯 Yeni Hedef Bulundu!\nİşletme: {domain_name}\nMail: {m_clean}\nÜlke: {ulke}")
+            time.sleep(2)
+
+    RADAR_CALISIYOR = False
+    bot_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"🏁 Radar tamamlandı! Toplam {bulunan_sayisi} yeni işletme listeye eklendi.")
+
+# --- MAİL GÖNDERME SİSTEMİ ---
 def mail_at(alici_mail, sirket, ulke):
     dil = "DE" if str(ulke).upper() == "DE" else "NL"
     ayar = TEMPLATES[dil]
@@ -114,8 +217,6 @@ def mail_gonderim_gorevi(bot_app):
                     chat_id=ADMIN_CHAT_ID, 
                     text=f"✅ Gönderildi:\nİşletme: {sirket} ({ulke})\nMail: {email}"
                 )
-                
-                # Saatte ~40 gönderim için 80-95 sn bekleme
                 time.sleep(random.randint(80, 95))
         except Exception as e:
             df.at[idx, "Durum"] = f"Hata: {str(e)[:25]}"
@@ -133,7 +234,35 @@ def mail_gonderim_gorevi(bot_app):
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return
-    await update.message.reply_text("👋 Sistem hazır Ali!\n\n/baslat - Gönderimi başlatır\n/durdur - Gönderimi durdurur\n/durum - Kaç mail gittiğini gösterir")
+    mesaj = (
+        "👋 Selam Ali! Radar & Staj Botu Hazır.\n\n"
+        "Komutlar:\n"
+        "🔎 /radar <sehir> - İnternetten otel/restoran ve mail bulur\n"
+        "   (Örn: /radar Amsterdam veya /radar Berlin)\n"
+        "🚀 /baslat - Listedekilere mail atmaya başlar\n"
+        "🛑 /durdur - Mail gönderimini durdurur\n"
+        "📊 /durum - Listede kaç yer var ve kaçı gitti gösterir"
+    )
+    await update.message.reply_text(mesaj)
+
+async def radar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global RADAR_CALISIYOR
+    if update.effective_chat.id != ADMIN_CHAT_ID:
+        return
+    if RADAR_CALISIYOR:
+        await update.message.reply_text("⚠️ Radar şu anda zaten çalışıyor!")
+        return
+
+    args = context.args
+    if not args:
+        await update.message.reply_text("Lütfen bir şehir belirt! Örn:\n/radar Amsterdam\n/radar Berlin")
+        return
+
+    sehir = " ".join(args).strip()
+    almanya_sehirleri = ['berlin', 'munich', 'münchen', 'frankfurt', 'hamburg', 'cologne', 'köln', 'düsseldorf', 'stuttgart']
+    ulke = "DE" if sehir.lower() in almanya_sehirleri else "NL"
+
+    threading.Thread(target=radar_gorevi, args=(sehir, ulke, context.application)).start()
 
 async def baslat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CALISIYOR
@@ -158,18 +287,26 @@ async def durum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return
     if not os.path.exists(CSV_FILE):
-        await update.message.reply_text("CSV dosyası bulunamadı.")
+        await update.message.reply_text("Henüz kayıtlı işletme yok.")
         return
     df = pd.read_csv(CSV_FILE)
     gonderilen = len(df[df.get("Durum") == "Gonderildi"])
     toplam = len(df)
-    await update.message.reply_text(f"📊 Durum:\nToplam: {toplam}\nGönderilen: {gonderilen}\nKalan: {toplam - gonderilen}\nAktif mi?: {'Evet' if CALISIYOR else 'Hayır'}")
+    await update.message.reply_text(
+        f"📊 Durum Özeti:\n"
+        f"Toplam Kayıtlı İşletme: {toplam}\n"
+        f"Mail Gönderilen: {gonderilen}\n"
+        f"Kalan: {toplam - gonderilen}\n"
+        f"Gönderim Aktif mi?: {'Evet' if CALISIYOR else 'Hayır'}\n"
+        f"Radar Aktif mi?: {'Evet' if RADAR_CALISIYOR else 'Hayır'}"
+    )
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
 
     bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     bot_app.add_handler(CommandHandler("start", start_cmd))
+    bot_app.add_handler(CommandHandler("radar", radar_cmd))
     bot_app.add_handler(CommandHandler("baslat", baslat_cmd))
     bot_app.add_handler(CommandHandler("durdur", durdur_cmd))
     bot_app.add_handler(CommandHandler("durum", durum_cmd))
