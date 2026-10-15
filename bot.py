@@ -9,13 +9,13 @@ from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# --- AYARLAR ---
-GMAIL_USER = "aligorkemdurmazz@gmail.com"
+# --- AYARLAR (YENİ MAİL ADRESİ) ---
+GMAIL_USER = "durmaz40ali@gmail.com"
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASS")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
 
-EXCEL_FILE = "restoranlar.xlsx"
+CSV_FILE = "restoranlar.csv"
 CV_FILE = "Ali_Gorkem_Durmaz_CV.pdf"
 
 CALISIYOR = False
@@ -45,7 +45,8 @@ Im Anhang finden Sie meinen Lebenslauf. Über die Chance auf ein Vorstellungsges
 
 Mit freundlichen Grüßen
 Ali Görkem Durmaz
-Tel: +90 553 876 75 40"""
+Tel: +90 553 876 75 40
+E-Mail: durmaz40ali@gmail.com"""
     },
     "NL": {
         "konu": "Application: Culinary Internship (February – May) – {sirket} – Ali Görkem Durmaz",
@@ -59,7 +60,8 @@ Please find my CV attached for your review.
 
 Kind regards,
 Ali Görkem Durmaz
-Tel: +90 553 876 75 40"""
+Tel: +90 553 876 75 40
+E-Mail: durmaz40ali@gmail.com"""
     }
 }
 
@@ -86,10 +88,10 @@ def mail_at(alici_mail, sirket, ulke):
 
 def mail_gonderim_gorevi(bot_app):
     global CALISIYOR
-    if not os.path.exists(EXCEL_FILE):
+    if not os.path.exists(CSV_FILE):
         return
 
-    df = pd.read_excel(EXCEL_FILE)
+    df = pd.read_csv(CSV_FILE)
     if "Durum" not in df.columns:
         df["Durum"] = "Bekliyor"
 
@@ -106,18 +108,18 @@ def mail_gonderim_gorevi(bot_app):
         try:
             if mail_at(email, sirket, ulke):
                 df.at[idx, "Durum"] = "Gonderildi"
-                df.to_excel(EXCEL_FILE, index=False)
+                df.to_csv(CSV_FILE, index=False)
                 
                 bot_app.bot.send_message(
                     chat_id=ADMIN_CHAT_ID, 
                     text=f"✅ Gönderildi:\nİşletme: {sirket} ({ulke})\nMail: {email}"
                 )
                 
-                # Saatte 40-45 aralığı için 80-95 sn bekleme
+                # Saatte ~40 gönderim için 80-95 sn bekleme
                 time.sleep(random.randint(80, 95))
         except Exception as e:
             df.at[idx, "Durum"] = f"Hata: {str(e)[:25]}"
-            df.to_excel(EXCEL_FILE, index=False)
+            df.to_csv(CSV_FILE, index=False)
             bot_app.bot.send_message(
                 chat_id=ADMIN_CHAT_ID, 
                 text=f"❌ Hata ({sirket}): {e}"
@@ -138,7 +140,7 @@ async def baslat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return
     if CALISIYOR:
-        await update.message.reply_text("⚠️ Sistem zaten şu an mail gönderiyor.")
+        await update.message.reply_text("⚠️ Sistem zaten çalışıyor.")
         return
     
     CALISIYOR = True
@@ -155,10 +157,10 @@ async def durdur_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def durum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return
-    if not os.path.exists(EXCEL_FILE):
-        await update.message.reply_text("Excel dosyası bulunamadı.")
+    if not os.path.exists(CSV_FILE):
+        await update.message.reply_text("CSV dosyası bulunamadı.")
         return
-    df = pd.read_excel(EXCEL_FILE)
+    df = pd.read_csv(CSV_FILE)
     gonderilen = len(df[df.get("Durum") == "Gonderildi"])
     toplam = len(df)
     await update.message.reply_text(f"📊 Durum:\nToplam: {toplam}\nGönderilen: {gonderilen}\nKalan: {toplam - gonderilen}\nAktif mi?: {'Evet' if CALISIYOR else 'Hayır'}")
