@@ -185,8 +185,14 @@ IGNORE_EXTENSIONS = (
     '.js', '.woff', '.woff2', '.ttf'
 )
 JUNK_DOMAINS = [
-    "example.com", "domain.com", "sentry.io", "wix.com", "wordpress.org",
-    "schema.org", "cloudflare.com", "ymail.com", ".gov", "alexandertheguest.com"
+    "example.com", "domain.com", "company.com", "sentry.io", "wix.com",
+    "wordpress.org", "schema.org", "cloudflare.com", "ymail.com",
+    ".gov", "alexandertheguest.com", "email.com"
+]
+
+GENERIC_TITLES = [
+    "contact", "contact us", "careers", "jobs", "press room",
+    "home", "welcome", "about us", "impressum", "media", "privacy policy"
 ]
 
 USER_AGENT_HEADERS = {
@@ -198,17 +204,36 @@ USER_AGENT_HEADERS = {
 }
 
 def clean_email(raw_email: str) -> str:
-    """Temizler, sondaki noktalari ve gecersiz karakterleri atar."""
     if not raw_email:
         return ""
     mail = raw_email.strip().strip(".,;:!'\"<>[]{}()").lower()
     if any(junk in mail for junk in JUNK_DOMAINS):
+        return ""
+    if mail.startswith(("you@", "user@", "name@", "email@", "info@domain")):
         return ""
     if mail.endswith(IGNORE_EXTENSIONS):
         return ""
     if "@" not in mail or "." not in mail.split("@")[-1]:
         return ""
     return mail
+
+def clean_venue_name(title: str, domain: str = "") -> str:
+    """Temiz ve gerçekçi işletme ismi türetir."""
+    name = re.sub(r"(https?://|www\.)", "", title)
+    name = re.sub(r"(\.\.\.| - .*| \| .*| : .*)", "", name).strip()
+    
+    # Generic başlıkları eler
+    if name.lower() in GENERIC_TITLES or len(name) < 3 or len(name) > 40:
+        if domain:
+            dom = domain.replace("www.", "").split(".")[0].replace("-", " ").title()
+            return f"{dom} Hotel & Restaurant"
+        return ""
+    
+    # Eğer tasarımcı, blog veya liste başlığıysa yok say
+    if any(k in name.lower() for k in ["top 1", "top 2", "best 1", "designers", "patient", "town of"]):
+        return ""
+        
+    return name
 
 def extract_email_from_website(website_url: str) -> str:
     if not website_url or not website_url.startswith("http"):
@@ -238,7 +263,7 @@ def extract_email_from_website(website_url: str) -> str:
                         base = "{uri.scheme}://{uri.netloc}".format(uri=urlparse(website_url))
                         sub_links.append(base + ("/" if not a['href'].startswith("/") else "") + a['href'])
             
-            for s_url in sub_links[:3]:
+            for s_url in sub_links[:2]:
                 try:
                     s_resp = requests.get(s_url, headers=USER_AGENT_HEADERS, timeout=5)
                     if s_resp.status_code == 200:
@@ -255,15 +280,15 @@ def extract_email_from_website(website_url: str) -> str:
         pass
     return ""
 
-def serper_google_crawler(city: str, limit: int = 20):
+def serper_google_crawler(city: str, limit: int = 15):
     if not SERPER_API_KEY:
         return []
 
     clean_city = city.replace("_", " ").title()
     queries = [
-        f'"{clean_city}" "hotel" (email OR contact OR karriere) -youtube -merch -gov',
-        f'"{clean_city}" "fine dining restaurant" (email OR kontakt OR career) -youtube',
-        f'"{clean_city}" "michelin" restaurant email contact'
+        f'"{clean_city}" luxury 5-star hotel "email" -merch -gov -wiki -blog',
+        f'"{clean_city}" michelin star restaurant "email" contact -designer -youtube',
+        f'site:.de "{clean_city}" hotel karriere email' if "berlin" in city.lower() or "munich" in city.lower() else f'"{clean_city}" fine dining restaurant email contact'
     ]
 
     found = []
@@ -284,29 +309,33 @@ def serper_google_crawler(city: str, limit: int = 20):
                 data = resp.json()
                 organic = data.get("organic", [])
                 for item in organic:
-                    title = item.get("title", f"Hospitality {clean_city}")
-                    title = re.sub(r"(\.\.\.| - .*| \| .*)", "", title).strip()
-                    snippet = item.get("snippet", "")
+                    raw_title = item.get("title", "")
                     link = item.get("link", "")
+                    domain = urlparse(link).netloc if link else ""
+                    
+                    venue_name = clean_venue_name(raw_title, domain)
+                    if not venue_name:
+                        continue
 
-                    # 1. Snippet icinden email ara
-                    snippet_emails = EMAIL_REGEX.findall(snippet + " " + title)
-                    added = False
+                    snippet = item.get("snippet", "")
+                    snippet_emails = EMAIL_REGEX.findall(snippet + " " + raw_title)
+                    
+                    target_email = ""
                     for em in snippet_emails:
                         em_clean = clean_email(em)
                         if em_clean and em_clean not in seen_emails:
-                            seen_emails.add(em_clean)
-                            found.append({"isim": title, "email": em_clean})
-                            added = True
+                            target_email = em_clean
                             break
 
-                    # 2. Resmi isletme sitesine girip tara
-                    if not added and link and len(found) < limit:
+                    if not target_email and link:
                         extracted = extract_email_from_website(link)
                         em_clean = clean_email(extracted)
                         if em_clean and em_clean not in seen_emails:
-                            seen_emails.add(em_clean)
-                            found.append({"isim": title, "email": em_clean})
+                            target_email = em_clean
+
+                    if target_email:
+                        seen_emails.add(target_email)
+                        found.append({"isim": venue_name, "email": target_email})
 
                     if len(found) >= limit:
                         break
@@ -316,7 +345,7 @@ def serper_google_crawler(city: str, limit: int = 20):
 
     return found
 
-def live_search_venues(city: str, limit: int = 20):
+def live_search_venues(city: str, limit: int = 15):
     clean_city = city.strip().replace("_", " ").title()
     logger.info(f"Otonom radar sahada: {clean_city}")
     results = []
@@ -449,9 +478,9 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
     asyncio.run_coroutine_threadsafe(
         bot_app.bot.send_message(
             chat_id=chat_id, 
-            text=f"🛰️ *Otonom Filtreli Canlı Radar Başlatıldı!*\n"
-                 f"📍 Hedef: `{sehir_temiz}` ({ulke_kodu})\n"
-                 f"Otel ve Michelin restoranları taranıp doğrulanıyor..."
+            text=f"🛰️ *Filtreli Canlı Radar Devrede!*\n"
+                 f"📍 Bölge: `{sehir_temiz}` ({ulke_kodu})\n"
+                 f"Doğrulanmış 5 yıldızlı oteller ve fine dining mekanlar taranıyor..."
         ),
         loop
     )
@@ -467,7 +496,7 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
     sent_history = get_sent_history()
     mevcut_mailler = set(df["Email"].astype(str).str.lower().tolist())
 
-    canli_bulunanlar = live_search_venues(sehir_sorgu, limit=20)
+    canli_bulunanlar = live_search_venues(sehir_sorgu, limit=15)
     bulunan_sayisi = 0
 
     for item in canli_bulunanlar:
@@ -502,8 +531,8 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
 
     RADAR_CALISIYOR = False
     sonuc_metni = (
-        f"🏁 Otonom tarama başarıyla tamamlandı!\n"
-        f"📍 `{sehir_temiz}` için **{bulunan_sayisi}** yeni işletme listeye eklendi.\n\n"
+        f"🏁 Otonom tarama tamamlandı!\n"
+        f"📍 `{sehir_temiz}` için **{bulunan_sayisi}** yeni işletme eklendi.\n\n"
         f"Gönderimi başlatmak için: /baslat"
     ) if bulunan_sayisi > 0 else (
         f"ℹ️ `{sehir_temiz}` için yeni adres bulunamadı veya hepsi hafızada kayıtlı."
