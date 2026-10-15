@@ -1,11 +1,11 @@
 import os
-import smtplib
+import base64
 import time
 import random
 import threading
 import logging
 import asyncio
-from email.message import EmailMessage
+import requests
 import pandas as pd
 from flask import Flask
 from telegram import Update
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # --- AYARLAR ---
 GMAIL_USER = "durmaz40ali@gmail.com"
-GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASS")
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
 
@@ -135,7 +135,7 @@ VERIFIED_DATABASE = {
     ]
 }
 
-# --- WEB SUNUCUSU (UptimeRobot / Render portu için) ---
+# --- WEB SUNUCUSU ---
 server = Flask(__name__)
 
 @server.route('/')
@@ -164,7 +164,7 @@ Tel: +90 553 876 75 40
 E-Mail: durmaz40ali@gmail.com"""
     },
     "NL": {
-        "konu": "Application: Culinary Internship (February – May) – {sirket} – Ali Görkem Durmaz",
+        "konu": "Application: Culinary Internship (February – Mai) – {sirket} – Ali Görkem Durmaz",
         "icerik": """Dear Hiring Team / Head Chef,
 
 My name is Ali Görkem Durmaz, a senior Gastronomy and Culinary Arts student at Bolu Abant Izzet Baysal University.
@@ -179,6 +179,44 @@ Tel: +90 553 876 75 40
 E-Mail: durmaz40ali@gmail.com"""
     }
 }
+
+# --- BREVO HTTP API MAİL GÖNDERME ---
+def mail_at_brevo(alici_mail, sirket, ulke):
+    dil = "DE" if str(ulke).upper() == "DE" else "NL"
+    ayar = TEMPLATES[dil]
+    konu = ayar["konu"].format(sirket=sirket)
+    metin = ayar["icerik"].format(sirket=sirket)
+
+    if not os.path.exists(CV_FILE):
+        raise FileNotFoundError(f"CV dosyası '{CV_FILE}' bulunamadı.")
+
+    with open(CV_FILE, "rb") as f:
+        cv_base64 = base64.b64encode(f.read()).decode('utf-8')
+
+    url = "https://api.brevo.com/v3/smtp/email"
+    headers = {
+        "accept": "application/json",
+        "api-key": BREVO_API_KEY,
+        "content-type": "application/json"
+    }
+    payload = {
+        "sender": {"name": "Ali Görkem Durmaz", "email": GMAIL_USER},
+        "to": [{"email": alici_mail, "name": sirket}],
+        "replyTo": {"email": GMAIL_USER, "name": "Ali Görkem Durmaz"},
+        "subject": konu,
+        "textContent": metin,
+        "attachment": [
+            {
+                "content": cv_base64,
+                "name": "Ali_Gorkem_Durmaz_CV.pdf"
+            }
+        ]
+    }
+
+    resp = requests.post(url, json=payload, headers=headers, timeout=20)
+    if resp.status_code not in [200, 201, 202]:
+        raise Exception(f"Brevo API Hatası ({resp.status_code}): {resp.text}")
+    return True
 
 # --- RADAR ÇALIŞTIRICI ---
 def radar_gorevi(sehir_sorgu, chat_id, loop, bot_app):
@@ -201,8 +239,7 @@ def radar_gorevi(sehir_sorgu, chat_id, loop, bot_app):
         asyncio.run_coroutine_threadsafe(
             bot_app.bot.send_message(
                 chat_id=chat_id,
-                text=f"⚠️ {sehir_sorgu.capitalize()} için listede henüz kayıt yok.\n"
-                     f"Doğrudan taranabilir şehirler: Berlin, Frankfurt, Munich, Hamburg, Cologne, Stuttgart, Düsseldorf, Amsterdam, Rotterdam."
+                text=f"⚠️ {sehir_sorgu.capitalize()} için listede henüz kayıt yok."
             ),
             loop
         )
@@ -240,40 +277,18 @@ def radar_gorevi(sehir_sorgu, chat_id, loop, bot_app):
                 ),
                 loop
             )
-            time.sleep(1.2)
+            time.sleep(1.0)
 
     RADAR_CALISIYOR = False
     asyncio.run_coroutine_threadsafe(
         bot_app.bot.send_message(
             chat_id=chat_id,
-            text=f"🏁 Radar tamamlandı! {sehir_sorgu.capitalize()} için {bulunan_sayisi} yeni işletme havuzuna eklendi."
+            text=f"🏁 Radar tamamlandı! {sehir_sorgu.capitalize()} için {bulunan_sayisi} yeni işletme eklendi."
         ),
         loop
     )
 
-# --- MAİL GÖNDERME ---
-def mail_at(alici_mail, sirket, ulke):
-    dil = "DE" if str(ulke).upper() == "DE" else "NL"
-    ayar = TEMPLATES[dil]
-    
-    msg = EmailMessage()
-    msg["Subject"] = ayar["konu"].format(sirket=sirket)
-    msg["From"] = f"Ali Görkem Durmaz <{GMAIL_USER}>"
-    msg["To"] = alici_mail
-    msg.set_content(ayar["icerik"].format(sirket=sirket))
-
-    if os.path.exists(CV_FILE):
-        with open(CV_FILE, "rb") as f:
-            msg.add_attachment(f.read(), maintype="application", subtype="pdf", filename="Ali_Gorkem_Durmaz_CV.pdf")
-    else:
-        logger.error(f"CV bulunamadı: {CV_FILE}")
-        return False
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-        s.login(GMAIL_USER, GMAIL_APP_PASS)
-        s.send_message(msg)
-    return True
-
+# --- MAİL GÖNDERİM GÖREVİ ---
 def mail_gonderim_gorevi(chat_id, loop, bot_app):
     global CALISIYOR
     if not os.path.exists(CSV_FILE):
@@ -281,16 +296,26 @@ def mail_gonderim_gorevi(chat_id, loop, bot_app):
             bot_app.bot.send_message(chat_id=chat_id, text="Hata: restoranlar.csv bulunamadı."),
             loop
         )
+        CALISIYOR = False
         return
 
     df = pd.read_csv(CSV_FILE)
     if "Durum" not in df.columns:
         df["Durum"] = "Bekliyor"
 
+    bekleyenler = df[df["Durum"] != "Gonderildi"]
+    if len(bekleyenler) == 0:
+        asyncio.run_coroutine_threadsafe(
+            bot_app.bot.send_message(chat_id=chat_id, text="ℹ️ Listede gönderilecek işletme kalmadı!"),
+            loop
+        )
+        CALISIYOR = False
+        return
+
     for idx, row in df.iterrows():
         if not CALISIYOR:
             break
-        if row["Durum"] == "Gonderildi":
+        if str(row["Durum"]).strip() == "Gonderildi":
             continue
 
         email = str(row["Email"]).strip()
@@ -298,33 +323,36 @@ def mail_gonderim_gorevi(chat_id, loop, bot_app):
         ulke = str(row.get("Ulke", "NL")).strip()
 
         try:
-            if mail_at(email, sirket, ulke):
-                df.at[idx, "Durum"] = "Gonderildi"
-                df.to_csv(CSV_FILE, index=False)
-                
-                asyncio.run_coroutine_threadsafe(
-                    bot_app.bot.send_message(
-                        chat_id=chat_id, 
-                        text=f"✅ Gönderildi:\nİşletme: {sirket} ({ulke})\nMail: {email}"
-                    ),
-                    loop
-                )
-                time.sleep(random.randint(80, 95))
+            logger.info(f"Mail iletiliyor: {sirket} ({email})")
+            mail_at_brevo(email, sirket, ulke)
+            df.at[idx, "Durum"] = "Gonderildi"
+            df.to_csv(CSV_FILE, index=False)
+            
+            asyncio.run_coroutine_threadsafe(
+                bot_app.bot.send_message(
+                    chat_id=chat_id, 
+                    text=f"✅ Gönderildi:\nİşletme: {sirket} ({ulke})\nMail: {email}"
+                ),
+                loop
+            )
+            time.sleep(random.randint(60, 75))
         except Exception as e:
-            df.at[idx, "Durum"] = f"Hata: {str(e)[:25]}"
+            hata_mesaji = str(e)[:120]
+            logger.error(f"Gonderim hatasi: {hata_mesaji}")
+            df.at[idx, "Durum"] = f"Hata"
             df.to_csv(CSV_FILE, index=False)
             asyncio.run_coroutine_threadsafe(
                 bot_app.bot.send_message(
                     chat_id=chat_id, 
-                    text=f"❌ Hata ({sirket}): {e}"
+                    text=f"❌ Hata ({sirket}):\n{hata_mesaji}"
                 ),
                 loop
             )
-            time.sleep(15)
+            time.sleep(10)
 
     CALISIYOR = False
     asyncio.run_coroutine_threadsafe(
-        bot_app.bot.send_message(chat_id=chat_id, text="🏁 Gönderim tamamlandı veya durduruldu."),
+        bot_app.bot.send_message(chat_id=chat_id, text="🏁 Gönderim döngüsü tamamlandı veya durduruldu."),
         loop
     )
 
