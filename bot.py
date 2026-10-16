@@ -190,18 +190,12 @@ JUNK_DOMAINS = [
     ".gov", "alexandertheguest.com", "email.com"
 ]
 
-GENERIC_TITLES = [
-    "contact", "contact us", "careers", "jobs", "press room",
-    "home", "welcome", "about us", "impressum", "media", "privacy policy"
+RECRUITMENT_OR_GENERIC_KEYWORDS = [
+    "contact", "contact us", "careers", "career", "jobs", "job", "press room",
+    "home", "welcome", "about us", "impressum", "media", "privacy policy",
+    "karriere", "stellenangebote", "vacancies", "vacancy", "dream job",
+    "join us", "work with us", "employment", "recruitment", "arbeiten"
 ]
-
-USER_AGENT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9,de;q=0.8"
-}
 
 def clean_email(raw_email: str) -> str:
     if not raw_email:
@@ -217,30 +211,54 @@ def clean_email(raw_email: str) -> str:
         return ""
     return mail
 
-def clean_venue_name(title: str, domain: str = "") -> str:
-    """Temiz ve gerçekçi işletme ismi türetir."""
+def brand_name_from_domain(domain: str) -> str:
+    """Domain adından şık ve temiz bir otel/restoran ismi türetir."""
+    if not domain:
+        return "Boutique Hotel & Restaurant"
+    clean = domain.lower().replace("www.", "")
+    parts = clean.split(".")
+    core = parts[0] if parts else clean
+    core = core.replace("-", " ").replace("_", " ")
+    words = [w.capitalize() for w in core.split() if w not in ["hotel", "restaurant", "berlin", "de", "com", "net"]]
+    brand = " ".join(words)
+    if not brand:
+        brand = core.title()
+    return f"{brand} Hotel & Restaurant"
+
+def clean_venue_name(title: str, domain: str = "", email: str = "") -> str:
+    """İşletme ismini kurumsal ve şık bir marka adına dönüştürür."""
     name = re.sub(r"(https?://|www\.)", "", title)
     name = re.sub(r"(\.\.\.| - .*| \| .*| : .*)", "", name).strip()
     
-    # Generic başlıkları eler
-    if name.lower() in GENERIC_TITLES or len(name) < 3 or len(name) > 40:
-        if domain:
-            dom = domain.replace("www.", "").split(".")[0].replace("-", " ").title()
-            return f"{dom} Hotel & Restaurant"
-        return ""
+    name_lower = name.lower()
     
-    # Eğer tasarımcı, blog veya liste başlığıysa yok say
-    if any(k in name.lower() for k in ["top 1", "top 2", "best 1", "designers", "patient", "town of"]):
+    is_generic = (
+        name_lower in RECRUITMENT_OR_GENERIC_KEYWORDS or
+        any(k in name_lower for k in [
+            "careers at", "career at", "jobs at", "job in", "jobs in", "karriere bei",
+            "dream job", "hotel job", "job offers", "top 1", "top 2", "best 1",
+            "designers based", "patient", "town of"
+        ]) or
+        len(name) < 3 or
+        len(name) > 35
+    )
+    
+    if is_generic:
+        if email and "@" in email:
+            mail_domain = email.split("@")[-1]
+            return brand_name_from_domain(mail_domain)
+        if domain:
+            return brand_name_from_domain(domain)
         return ""
         
-    return name
+    return name.title()
 
 def extract_email_from_website(website_url: str) -> str:
     if not website_url or not website_url.startswith("http"):
         return ""
     
     try:
-        resp = requests.get(website_url, headers=USER_AGENT_HEADERS, timeout=6)
+        resp = requests.get(website_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
         if resp.status_code == 200:
             found = EMAIL_REGEX.findall(resp.text)
             cleaned = [clean_email(e) for e in found if clean_email(e)]
@@ -251,7 +269,6 @@ def extract_email_from_website(website_url: str) -> str:
                         return mail
                 return cleaned[0]
             
-            # Sub-crawl for Contact / Jobs links
             soup = BeautifulSoup(resp.text, "html.parser")
             sub_links = []
             for a in soup.find_all("a", href=True):
@@ -265,7 +282,7 @@ def extract_email_from_website(website_url: str) -> str:
             
             for s_url in sub_links[:2]:
                 try:
-                    s_resp = requests.get(s_url, headers=USER_AGENT_HEADERS, timeout=5)
+                    s_resp = requests.get(s_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
                     if s_resp.status_code == 200:
                         s_found = EMAIL_REGEX.findall(s_resp.text)
                         s_cleaned = [clean_email(e) for e in s_found if clean_email(e)]
@@ -312,11 +329,6 @@ def serper_google_crawler(city: str, limit: int = 15):
                     raw_title = item.get("title", "")
                     link = item.get("link", "")
                     domain = urlparse(link).netloc if link else ""
-                    
-                    venue_name = clean_venue_name(raw_title, domain)
-                    if not venue_name:
-                        continue
-
                     snippet = item.get("snippet", "")
                     snippet_emails = EMAIL_REGEX.findall(snippet + " " + raw_title)
                     
@@ -333,9 +345,15 @@ def serper_google_crawler(city: str, limit: int = 15):
                         if em_clean and em_clean not in seen_emails:
                             target_email = em_clean
 
-                    if target_email:
-                        seen_emails.add(target_email)
-                        found.append({"isim": venue_name, "email": target_email})
+                    if not target_email:
+                        continue
+
+                    venue_name = clean_venue_name(raw_title, domain, target_email)
+                    if not venue_name:
+                        continue
+
+                    seen_emails.add(target_email)
+                    found.append({"isim": venue_name, "email": target_email})
 
                     if len(found) >= limit:
                         break
@@ -478,9 +496,9 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
     asyncio.run_coroutine_threadsafe(
         bot_app.bot.send_message(
             chat_id=chat_id, 
-            text=f"🛰️ *Filtreli Canlı Radar Devrede!*\n"
-                 f"📍 Bölge: `{sehir_temiz}` ({ulke_kodu})\n"
-                 f"Doğrulanmış 5 yıldızlı oteller ve fine dining mekanlar taranıyor..."
+            text=f"🎯 Hedef Algılandı!\n"
+                 f"📍 Bölge: {sehir_temiz} ({ulke_kodu})\n"
+                 f"Otel ve Michelin restoranları taranıyor..."
         ),
         loop
     )
@@ -517,13 +535,18 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
         bulunan_sayisi += 1
         df.to_csv(CSV_FILE, index=False)
 
+        # Doğrudan açık metin e-posta: Telegram otomatik masmavi tıklanabilir link yapar
+        bildirim = (
+            f"🎯 Hedef Algılandı!\n"
+            f"İşletme: {sirket}\n"
+            f"Mail: {m_clean}\n"
+            f"Bölge: {sehir_temiz} ({ulke_kodu})"
+        )
+
         asyncio.run_coroutine_threadsafe(
             bot_app.bot.send_message(
                 chat_id=chat_id,
-                text=f"🎯 *Doğrulanmış Hedef Eklendi!*\n"
-                     f"İşletme: {sirket}\n"
-                     f"Mail: `{m_clean}`\n"
-                     f"Bölge: {sehir_temiz} ({ulke_kodu})"
+                text=bildirim
             ),
             loop
         )
@@ -531,15 +554,15 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
 
     RADAR_CALISIYOR = False
     sonuc_metni = (
-        f"🏁 Otonom tarama tamamlandı!\n"
-        f"📍 `{sehir_temiz}` için **{bulunan_sayisi}** yeni işletme eklendi.\n\n"
+        f"🏁 Otonom tarama başarıyla tamamlandı!\n"
+        f"📍 {sehir_temiz} için {bulunan_sayisi} yeni işletme listeye eklendi.\n\n"
         f"Gönderimi başlatmak için: /baslat"
     ) if bulunan_sayisi > 0 else (
-        f"ℹ️ `{sehir_temiz}` için yeni adres bulunamadı veya hepsi hafızada kayıtlı."
+        f"ℹ️ {sehir_temiz} için yeni adres tespit edilemedi veya hepsi hafızada kayıtlı."
     )
 
     asyncio.run_coroutine_threadsafe(
-        bot_app.bot.send_message(chat_id=chat_id, text=sonuc_metni, parse_mode="Markdown"),
+        bot_app.bot.send_message(chat_id=chat_id, text=sonuc_metni),
         loop
     )
 
@@ -606,10 +629,15 @@ def mail_gonderim_gorevi(chat_id: int, loop, bot_app):
             add_to_sent_history(email)
             sent_history.add(email)
             
+            bildirim = (
+                f"✅ Gönderildi:\n"
+                f"İşletme: {sirket} ({ulke})\n"
+                f"Mail: {email}"
+            )
             asyncio.run_coroutine_threadsafe(
                 bot_app.bot.send_message(
                     chat_id=chat_id, 
-                    text=f"✅ Gönderildi:\nİşletme: {sirket} ({ulke})\nMail: `{email}`"
+                    text=bildirim
                 ),
                 loop
             )
