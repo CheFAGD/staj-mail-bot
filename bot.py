@@ -149,39 +149,22 @@ CITY_DIRECTORY = {
 }
 
 COUNTRY_MAP = {
-    # Amerika
     "amerika": "Amerika", "usa": "Amerika", "us": "Amerika", "unitedstates": "Amerika",
-    # Almanya
     "almanya": "Almanya", "germany": "Almanya", "de": "Almanya",
-    # İspanya
     "ispanya": "Ispanya", "spain": "Ispanya", "es": "Ispanya", "espana": "Ispanya",
-    # İsviçre
     "isvicre": "Isvicre", "switzerland": "Isvicre", "ch": "Isvicre", "swiss": "Isvicre",
-    # Portekiz
     "portekiz": "Portekiz", "portugal": "Portekiz", "pt": "Portekiz",
-    # İtalya
     "italya": "Italya", "italy": "Italya", "it": "Italya",
-    # Fransa
     "fransa": "Fransa", "france": "Fransa", "fr": "Fransa",
-    # Hollanda
     "hollanda": "Hollanda", "netherlands": "Hollanda", "nl": "Hollanda",
-    # İngiltere
     "ingiltere": "Ingiltere", "uk": "Ingiltere", "england": "Ingiltere", "britain": "Ingiltere",
-    # Avusturya
     "avusturya": "Avusturya", "austria": "Avusturya", "at": "Avusturya",
-    # Belçika
     "belcika": "Belcika", "belgium": "Belcika", "be": "Belcika",
-    # İskandinavya
     "iskandinavya": "Iskandinavya", "scandinavia": "Iskandinavya",
-    # Polonya
     "polonya": "Polonya", "poland": "Polonya", "pl": "Polonya",
-    # Çekya
     "cekya": "Cekya", "cekyo": "Cekya", "czech": "Cekya", "cz": "Cekya",
-    # Yunanistan
     "yunanistan": "Yunanistan", "greece": "Yunanistan", "gr": "Yunanistan",
-    # Macaristan
     "macaristan": "Macaristan", "hungary": "Macaristan", "hu": "Macaristan",
-    # Diğer
     "diger": "Diger", "other": "Diger"
 }
 
@@ -468,7 +451,7 @@ Tel: +90 553 876 75 40
 E-Mail: durmaz40ali@gmail.com"""
     },
     "EN": {
-        "konu": "Application: Culinary Internship (February – May) – {sirket} – Ali Görkem Durmaz",
+        "konu": "Application: Culinary Internship (February – Mai) – {sirket} – Ali Görkem Durmaz",
         "icerik": """Dear Hiring Team / Head Chef,
 
 My name is Ali Görkem Durmaz, a senior Gastronomy and Culinary Arts student at Bolu Abant Izzet Baysal University.
@@ -510,6 +493,7 @@ def mail_at_brevo(alici_mail: str, sirket: str, ulke: str):
         "sender": {"name": "Ali Görkem Durmaz", "email": GMAIL_USER},
         "to": [{"email": clean_alici, "name": sirket}],
         "replyTo": {"name": "Ali Görkem Durmaz", "email": GMAIL_USER},
+        "bcc": [{"email": GMAIL_USER, "name": "Ali Görkem Durmaz"}],
         "subject": konu,
         "textContent": metin,
         "attachment": [
@@ -684,7 +668,6 @@ def mail_gonderim_gorevi(chat_id: int, loop, bot_app):
                 ),
                 loop
             )
-            # Spam filtrelerini ve Brevo güvenlik kalkanını tetiklememek için 75-95 sn bekleme
             time.sleep(random.randint(75, 95))
         except Exception as e:
             hata_mesaji = str(e)[:120]
