@@ -39,7 +39,6 @@ CV_FILE = "Ali_Gorkem_Durmaz_CV.pdf"
 CALISIYOR = False
 RADAR_CALISIYOR = False
 
-# Kalıcı hafıza: Daha önce mail atılmış adresler
 PERMANENT_SENT_EMAILS = {
     # Amsterdam
     "amsterdam.info@waldorfastoria.com",
@@ -149,6 +148,80 @@ CITY_DIRECTORY = {
     ]
 }
 
+COUNTRY_MAP = {
+    # Amerika
+    "amerika": "Amerika",
+    "usa": "Amerika",
+    "us": "Amerika",
+    "unitedstates": "Amerika",
+    # Almanya
+    "almanya": "Almanya",
+    "germany": "Almanya",
+    "de": "Almanya",
+    # İspanya
+    "ispanya": "Ispanya",
+    "spain": "Ispanya",
+    "es": "Ispanya",
+    "espana": "Ispanya",
+    # İsviçre
+    "isvicre": "Isvicre",
+    "switzerland": "Isvicre",
+    "ch": "Isvicre",
+    "swiss": "Isvicre",
+    # Portekiz
+    "portekiz": "Portekiz",
+    "portugal": "Portekiz",
+    "pt": "Portekiz",
+    # İtalya
+    "italya": "Italya",
+    "italy": "Italya",
+    "it": "Italya",
+    # Fransa
+    "fransa": "Fransa",
+    "france": "Fransa",
+    "fr": "Fransa",
+    # Hollanda
+    "hollanda": "Hollanda",
+    "netherlands": "Hollanda",
+    "nl": "Hollanda",
+    # İngiltere
+    "ingiltere": "Ingiltere",
+    "uk": "Ingiltere",
+    "england": "Ingiltere",
+    "britain": "Ingiltere",
+    # Avusturya
+    "avusturya": "Avusturya",
+    "austria": "Avusturya",
+    "at": "Avusturya",
+    # Belçika
+    "belcika": "Belcika",
+    "belgium": "Belcika",
+    "be": "Belcika",
+    # İskandinavya
+    "iskandinavya": "Iskandinavya",
+    "scandinavia": "Iskandinavya",
+    # Polonya
+    "polonya": "Polonya",
+    "poland": "Polonya",
+    "pl": "Polonya",
+    # Çekya
+    "cekya": "Cekya",
+    "cekyo": "Cekya",
+    "czech": "Cekya",
+    "cz": "Cekya",
+    # Yunanistan
+    "yunanistan": "Yunanistan",
+    "greece": "Yunanistan",
+    "gr": "Yunanistan",
+    # Macaristan
+    "macaristan": "Macaristan",
+    "hungary": "Macaristan",
+    "hu": "Macaristan",
+    # Diğer
+    "diger": "Diger",
+    "other": "Diger"
+}
+
 def slugify(text: str) -> str:
     text = text.lower().strip()
     replacements = {
@@ -173,10 +246,18 @@ def get_country_code(city_slug: str) -> str:
         "kitzbuhel", "zurich", "geneva", "basel", "bern", "lucerne",
         "stmoritz", "lausanne", "zermatt"
     ]
+    us_cities = [
+        "newyork", "chicago", "losangeles", "sanfrancisco", "miami",
+        "boston", "lasvegas", "washington", "seattle", "austin",
+        "houston", "dallas", "philadelphia", "atlanta", "sandiego",
+        "denver", "neworleans", "orlando", "honolulu", "aspen", "nashville"
+    ]
     if any(c in clean for c in de_cities):
         return "DE"
     if any(c in clean for c in at_ch_cities):
         return "AT"
+    if any(c in clean for c in us_cities):
+        return "US"
     return "EN"
 
 EMAIL_REGEX = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
@@ -212,7 +293,6 @@ def clean_email(raw_email: str) -> str:
     return mail
 
 def brand_name_from_domain(domain: str) -> str:
-    """Domain adından şık ve temiz bir otel/restoran ismi türetir."""
     if not domain:
         return "Boutique Hotel & Restaurant"
     clean = domain.lower().replace("www.", "")
@@ -226,10 +306,8 @@ def brand_name_from_domain(domain: str) -> str:
     return f"{brand} Hotel & Restaurant"
 
 def clean_venue_name(title: str, domain: str = "", email: str = "") -> str:
-    """İşletme ismini kurumsal ve şık bir marka adına dönüştürür."""
     name = re.sub(r"(https?://|www\.)", "", title)
     name = re.sub(r"(\.\.\.| - .*| \| .*| : .*)", "", name).strip()
-    
     name_lower = name.lower()
     
     is_generic = (
@@ -535,7 +613,6 @@ def radar_gorevi(sehir_sorgu: str, chat_id: int, loop, bot_app):
         bulunan_sayisi += 1
         df.to_csv(CSV_FILE, index=False)
 
-        # Doğrudan açık metin e-posta: Telegram otomatik masmavi tıklanabilir link yapar
         bildirim = (
             f"🎯 Hedef Algılandı!\n"
             f"İşletme: {sirket}\n"
@@ -663,17 +740,17 @@ def mail_gonderim_gorevi(chat_id: int, loop, bot_app):
     )
 
 def build_country_message(country_name: str, cities: list) -> str:
-    lines = [f"🌍 *{country_name.upper()} ŞEHİR RADARLARI* 🛰️", "Aşağıdaki şehirlere tıklayarak canlı taramayı başlatabilirsin:\n"]
+    lines = [f"🌍 {country_name.upper()} ŞEHİR RADARLARI 🛰️\n", "Aşağıdaki şehirlere tıklayarak canlı taramayı başlatabilirsin:\n"]
     for c in cities:
         c_slug = slugify(c)
-        lines.append(f"👉 /radar_{c_slug}  _({c})_")
+        lines.append(f"👉 /radar_{c_slug} ({c})")
     lines.append("\n🚀 Taramadan sonra gönderimi başlatmak için: /baslat")
     return "\n".join(lines)
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mesaj = (
-        f"👋 Selam Ali! Küresel Otonom Staj Radarı 7/24 Devrede.\n\n"
-        "🌐 *Ülke Menüleri:*\n"
+        "👋 Selam Ali! Küresel Otonom Staj Radarı 7/24 Devrede.\n\n"
+        "🌐 Ülke Menüleri:\n"
         "👉 /amerika - ABD\n"
         "👉 /almanya - Almanya\n"
         "👉 /italya - İtalya\n"
@@ -682,19 +759,27 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👉 /hollanda - Hollanda\n"
         "👉 /ingiltere - İngiltere\n"
         "👉 /iskandinavya - İskandinav Ülkeleri\n"
-        "👉 /isvicre & /avusturya\n"
-        "👉 /ulkeler - Tüm ülkeler\n\n"
-        "⚙️ *Operasyon Komutları:*\n"
+        "👉 /isvicre - İsviçre\n"
+        "👉 /avusturya - Avusturya\n"
+        "👉 /portekiz - Portekiz\n"
+        "👉 /belcika - Belçika\n"
+        "👉 /polonya - Polonya\n"
+        "👉 /cekya - Çekya\n"
+        "👉 /yunanistan - Yunanistan\n"
+        "👉 /macaristan - Macaristan\n"
+        "👉 /diger - Diğer Başkentler\n"
+        "👉 /ulkeler - Tüm ülkeler listesi\n\n"
+        "⚙️ Operasyon Komutları:\n"
         "🚀 /baslat - Gönderimi başlatır\n"
         "🛑 /durdur - Gönderimi durdurur\n"
         "📊 /durum - Durum özeti\n"
         "💾 /csv_indir - Güncel CSV indir"
     )
-    await update.message.reply_text(mesaj, parse_mode="Markdown")
+    await update.message.reply_text(mesaj)
 
 async def ulkeler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mesaj = (
-        "🌍 *DESTEKLENEN TÜM ÜLKELER*\n\n"
+        "🌍 DESTEKLENEN TÜM ÜLKELER\n\n"
         "🇺🇸 /amerika\n"
         "🇩🇪 /almanya\n"
         "🇮🇹 /italya\n"
@@ -708,27 +793,31 @@ async def ulkeler_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🇧🇪 /belcika\n"
         "❄️ /iskandinavya\n"
         "🇵🇱 /polonya\n"
-        "🇨🇿 /cekyo\n"
+        "🇨🇿 /cekya\n"
         "🇬🇷 /yunanistan\n"
         "🇭🇺 /macaristan\n"
         "🌐 /diger"
     )
-    await update.message.reply_text(mesaj, parse_mode="Markdown")
+    await update.message.reply_text(mesaj)
 
-async def country_shortcut_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cmd = update.message.text.strip().replace("/", "").lower()
-    mapping = {
-        "almanya": "Almanya", "amerika": "Amerika", "italya": "Italya",
-        "fransa": "Fransa", "ispanya": "Ispanya", "hollanda": "Hollanda",
-        "ingiltere": "Ingiltere", "isvicre": "Isvicre", "avusturya": "Avusturya",
-        "portekiz": "Portekiz", "belcika": "Belcika", "iskandinavya": "Iskandinavya",
-        "polonya": "Polonya", "cekyo": "Cekya", "yunanistan": "Yunanistan",
-        "macaristan": "Macaristan", "diger": "Diger"
-    }
-    target = mapping.get(cmd)
+async def generic_text_or_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+    raw_text = update.message.text.strip()
+    cmd = slugify(raw_text.split()[0].replace("/", ""))
+    
+    # Doğrudan veya slugify eşleme
+    target = COUNTRY_MAP.get(cmd)
+    if not target:
+        for k, v in COUNTRY_MAP.items():
+            if slugify(k) == cmd:
+                target = v
+                break
+
     if target and target in CITY_DIRECTORY:
-        text = build_country_message(target, CITY_DIRECTORY[target])
-        await update.message.reply_text(text, parse_mode="Markdown")
+        reply = build_country_message(target, CITY_DIRECTORY[target])
+        await update.message.reply_text(reply)
+        return
 
 async def radar_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global RADAR_CALISIYOR
@@ -743,7 +832,7 @@ async def radar_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text.startswith("/radar"):
         args = context.args
         if not args:
-            await update.message.reply_text("Örnek: `/radar berlin` veya `/radar_roma`")
+            await update.message.reply_text("Örnek: /radar berlin veya /radar_roma")
             return
         sehir = " ".join(args).strip()
     else:
@@ -783,13 +872,12 @@ async def durum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kalan = max(0, toplam - gonderilen)
 
     await update.message.reply_text(
-        f"📊 *Durum Özeti:*\n"
+        f"📊 Durum Özeti:\n"
         f"Toplam Kayıtlı: {toplam}\n"
         f"Gönderilen: {gonderilen}\n"
         f"Kalan: {kalan}\n"
         f"Gönderim Aktif mi?: {'Evet' if CALISIYOR else 'Hayır'}\n"
-        f"Radar Aktif mi?: {'Evet' if RADAR_CALISIYOR else 'Hayır'}",
-        parse_mode="Markdown"
+        f"Radar Aktif mi?: {'Evet' if RADAR_CALISIYOR else 'Hayır'}"
     )
 
 async def csv_indir_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -820,7 +908,7 @@ async def dosya_yukle_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         toplam = len(df)
         gonderilen_sayisi = len(gonderilenler)
         await update.message.reply_text(
-            f"✅ `restoranlar.csv` başarıyla yüklendi!\n"
+            f"✅ restoranlar.csv başarıyla yüklendi!\n"
             f"Toplam Kayıt: {toplam}\n"
             f"Gönderildi: {gonderilen_sayisi}\n"
             f"Kalan: {toplam - gonderilen_sayisi}"
@@ -838,24 +926,23 @@ async def main():
 
     bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
+    # 1. Ana Komutlar
     bot_app.add_handler(CommandHandler("start", start_cmd))
     bot_app.add_handler(CommandHandler("ulkeler", ulkeler_cmd))
     bot_app.add_handler(CommandHandler("baslat", baslat_cmd))
     bot_app.add_handler(CommandHandler("durdur", durdur_cmd))
     bot_app.add_handler(CommandHandler("durum", durum_cmd))
     bot_app.add_handler(CommandHandler("csv_indir", csv_indir_cmd))
-    bot_app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), dosya_yukle_handler))
     bot_app.add_handler(CommandHandler("radar", radar_dispatcher))
 
-    country_commands = [
-        "almanya", "amerika", "italya", "fransa", "ispanya", "hollanda",
-        "ingiltere", "isvicre", "avusturya", "portekiz", "belcika",
-        "iskandinavya", "polonya", "cekyo", "yunanistan", "macaristan", "diger"
-    ]
-    for c_cmd in country_commands:
-        bot_app.add_handler(CommandHandler(c_cmd, country_shortcut_handler))
+    # 2. Ülke Komutları - Tüm varyasyonlar (ispanya, isvicre, portekiz vs.)
+    for c_cmd in COUNTRY_MAP.keys():
+        bot_app.add_handler(CommandHandler(c_cmd, generic_text_or_command_handler))
 
+    # 3. Dinamik radar komutları ve genel komut/metin yakalayıcı (Fallback)
     bot_app.add_handler(MessageHandler(filters.Regex(r"^/radar_"), radar_dispatcher))
+    bot_app.add_handler(MessageHandler(filters.COMMAND | filters.TEXT, generic_text_or_command_handler))
+    bot_app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), dosya_yukle_handler))
 
     async with bot_app:
         await bot_app.start()
