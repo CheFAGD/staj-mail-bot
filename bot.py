@@ -150,76 +150,39 @@ CITY_DIRECTORY = {
 
 COUNTRY_MAP = {
     # Amerika
-    "amerika": "Amerika",
-    "usa": "Amerika",
-    "us": "Amerika",
-    "unitedstates": "Amerika",
+    "amerika": "Amerika", "usa": "Amerika", "us": "Amerika", "unitedstates": "Amerika",
     # Almanya
-    "almanya": "Almanya",
-    "germany": "Almanya",
-    "de": "Almanya",
+    "almanya": "Almanya", "germany": "Almanya", "de": "Almanya",
     # İspanya
-    "ispanya": "Ispanya",
-    "spain": "Ispanya",
-    "es": "Ispanya",
-    "espana": "Ispanya",
+    "ispanya": "Ispanya", "spain": "Ispanya", "es": "Ispanya", "espana": "Ispanya",
     # İsviçre
-    "isvicre": "Isvicre",
-    "switzerland": "Isvicre",
-    "ch": "Isvicre",
-    "swiss": "Isvicre",
+    "isvicre": "Isvicre", "switzerland": "Isvicre", "ch": "Isvicre", "swiss": "Isvicre",
     # Portekiz
-    "portekiz": "Portekiz",
-    "portugal": "Portekiz",
-    "pt": "Portekiz",
+    "portekiz": "Portekiz", "portugal": "Portekiz", "pt": "Portekiz",
     # İtalya
-    "italya": "Italya",
-    "italy": "Italya",
-    "it": "Italya",
+    "italya": "Italya", "italy": "Italya", "it": "Italya",
     # Fransa
-    "fransa": "Fransa",
-    "france": "Fransa",
-    "fr": "Fransa",
+    "fransa": "Fransa", "france": "Fransa", "fr": "Fransa",
     # Hollanda
-    "hollanda": "Hollanda",
-    "netherlands": "Hollanda",
-    "nl": "Hollanda",
+    "hollanda": "Hollanda", "netherlands": "Hollanda", "nl": "Hollanda",
     # İngiltere
-    "ingiltere": "Ingiltere",
-    "uk": "Ingiltere",
-    "england": "Ingiltere",
-    "britain": "Ingiltere",
+    "ingiltere": "Ingiltere", "uk": "Ingiltere", "england": "Ingiltere", "britain": "Ingiltere",
     # Avusturya
-    "avusturya": "Avusturya",
-    "austria": "Avusturya",
-    "at": "Avusturya",
+    "avusturya": "Avusturya", "austria": "Avusturya", "at": "Avusturya",
     # Belçika
-    "belcika": "Belcika",
-    "belgium": "Belcika",
-    "be": "Belcika",
+    "belcika": "Belcika", "belgium": "Belcika", "be": "Belcika",
     # İskandinavya
-    "iskandinavya": "Iskandinavya",
-    "scandinavia": "Iskandinavya",
+    "iskandinavya": "Iskandinavya", "scandinavia": "Iskandinavya",
     # Polonya
-    "polonya": "Polonya",
-    "poland": "Polonya",
-    "pl": "Polonya",
+    "polonya": "Polonya", "poland": "Polonya", "pl": "Polonya",
     # Çekya
-    "cekya": "Cekya",
-    "cekyo": "Cekya",
-    "czech": "Cekya",
-    "cz": "Cekya",
+    "cekya": "Cekya", "cekyo": "Cekya", "czech": "Cekya", "cz": "Cekya",
     # Yunanistan
-    "yunanistan": "Yunanistan",
-    "greece": "Yunanistan",
-    "gr": "Yunanistan",
+    "yunanistan": "Yunanistan", "greece": "Yunanistan", "gr": "Yunanistan",
     # Macaristan
-    "macaristan": "Macaristan",
-    "hungary": "Macaristan",
-    "hu": "Macaristan",
+    "macaristan": "Macaristan", "hungary": "Macaristan", "hu": "Macaristan",
     # Diğer
-    "diger": "Diger",
-    "other": "Diger"
+    "diger": "Diger", "other": "Diger"
 }
 
 def slugify(text: str) -> str:
@@ -546,8 +509,7 @@ def mail_at_brevo(alici_mail: str, sirket: str, ulke: str):
     payload = {
         "sender": {"name": "Ali Görkem Durmaz", "email": GMAIL_USER},
         "to": [{"email": clean_alici, "name": sirket}],
-        "bcc": [{"email": GMAIL_USER, "name": "Kopya - Ali Görkem Durmaz"}],
-        "replyTo": {"email": GMAIL_USER, "name": "Ali Görkem Durmaz"},
+        "replyTo": {"name": "Ali Görkem Durmaz", "email": GMAIL_USER},
         "subject": konu,
         "textContent": metin,
         "attachment": [
@@ -555,10 +517,14 @@ def mail_at_brevo(alici_mail: str, sirket: str, ulke: str):
                 "content": cv_base64,
                 "name": "Ali_Gorkem_Durmaz_CV.pdf"
             }
-        ]
+        ],
+        "headers": {
+            "X-Mailin-Custom": "Internship_Application",
+            "Precedence": "bulk"
+        }
     }
 
-    resp = requests.post(url, json=payload, headers=headers, timeout=20)
+    resp = requests.post(url, json=payload, headers=headers, timeout=25)
     if resp.status_code not in [200, 201, 202]:
         raise Exception(f"Brevo API Hatası ({resp.status_code}): {resp.text}")
     return True
@@ -718,7 +684,8 @@ def mail_gonderim_gorevi(chat_id: int, loop, bot_app):
                 ),
                 loop
             )
-            time.sleep(random.randint(60, 75))
+            # Spam filtrelerini ve Brevo güvenlik kalkanını tetiklememek için 75-95 sn bekleme
+            time.sleep(random.randint(75, 95))
         except Exception as e:
             hata_mesaji = str(e)[:120]
             logger.error(f"Gonderim hatasi: {hata_mesaji}")
@@ -731,7 +698,7 @@ def mail_gonderim_gorevi(chat_id: int, loop, bot_app):
                 ),
                 loop
             )
-            time.sleep(10)
+            time.sleep(15)
 
     CALISIYOR = False
     asyncio.run_coroutine_threadsafe(
@@ -806,7 +773,6 @@ async def generic_text_or_command_handler(update: Update, context: ContextTypes.
     raw_text = update.message.text.strip()
     cmd = slugify(raw_text.split()[0].replace("/", ""))
     
-    # Doğrudan veya slugify eşleme
     target = COUNTRY_MAP.get(cmd)
     if not target:
         for k, v in COUNTRY_MAP.items():
@@ -926,7 +892,6 @@ async def main():
 
     bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
-    # 1. Ana Komutlar
     bot_app.add_handler(CommandHandler("start", start_cmd))
     bot_app.add_handler(CommandHandler("ulkeler", ulkeler_cmd))
     bot_app.add_handler(CommandHandler("baslat", baslat_cmd))
@@ -935,11 +900,9 @@ async def main():
     bot_app.add_handler(CommandHandler("csv_indir", csv_indir_cmd))
     bot_app.add_handler(CommandHandler("radar", radar_dispatcher))
 
-    # 2. Ülke Komutları - Tüm varyasyonlar (ispanya, isvicre, portekiz vs.)
     for c_cmd in COUNTRY_MAP.keys():
         bot_app.add_handler(CommandHandler(c_cmd, generic_text_or_command_handler))
 
-    # 3. Dinamik radar komutları ve genel komut/metin yakalayıcı (Fallback)
     bot_app.add_handler(MessageHandler(filters.Regex(r"^/radar_"), radar_dispatcher))
     bot_app.add_handler(MessageHandler(filters.COMMAND | filters.TEXT, generic_text_or_command_handler))
     bot_app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), dosya_yukle_handler))
